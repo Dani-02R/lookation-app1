@@ -5,7 +5,7 @@ import { StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-nativ
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { showMessage } from "react-native-flash-message";
 
-const API_URL = "http://192.168.1.24:3000"; // Cambia si usas otra IP
+const API_URL = "http://192.168.0.13:3000"; // Cambia si usas otra IP
 
 export default function RequestPasswordScreen() {
   const navigation = useNavigation();

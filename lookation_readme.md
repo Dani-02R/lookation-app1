@@ -37,6 +37,26 @@ npm install
 
 ---
 
+### Dependencias adicionales a instalar manualmente
+
+Algunas dependencias pueden requerir instalación manual si no están en el `package.json` o para asegurar compatibilidad:
+
+```bash
+npm install @react-navigation/native @react-navigation/native-stack
+npm install react-native-screens react-native-safe-area-context
+npm install react-native-vector-icons
+npm install axios
+npm install react-native-flash-message
+```
+
+> Si usas iOS, ejecuta también:
+>
+> ```bash
+> npx pod-install
+> ```
+
+---
+
 ## Ejecución
 
 Para ejecutar la aplicación en un dispositivo o emulador Android:
@@ -85,5 +105,4 @@ npm install @react-native-firebase/app @react-native-firebase/auth
 
 ## Contacto
 
-Para más información o soporte sobre el proyecto, puedes contactarme.
-
+Para más información o soporte sobre el proyecto, puedes

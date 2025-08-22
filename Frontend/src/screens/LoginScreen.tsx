@@ -17,6 +17,10 @@ export default function LoginScreen() {
     console.log('Email:', email, 'Password:', password);
   };
 
+  const handleForgotPassword = () => {
+    navigation.navigate('request-code', { email });
+  };
+
   return (
     <View style={styles.container}>
       <ImageBackground
@@ -59,7 +63,8 @@ export default function LoginScreen() {
           onChangeText={setPassword}
         />
 
-        <TouchableOpacity>
+        {/* Forgot password */}
+        <TouchableOpacity onPress={handleForgotPassword}>
           <Text style={styles.forgot}>¿Olvidaste tu contraseña?</Text>
         </TouchableOpacity>
 

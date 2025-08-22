@@ -38,7 +38,7 @@ export default function RequestCodeScreen() {
     }
 
     try {
-      await axios.post("http://192.168.1.24:3000/send-code", { email });
+      await axios.post("http://192.168.0.13:3000/send-code", { email });
 
       showMessage({
         message: "Código enviado ✅",

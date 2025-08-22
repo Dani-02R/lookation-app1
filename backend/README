@@ -1,0 +1,34 @@
+# 📍 Lookation App
+
+Aplicación móvil desarrollada con **React Native (Expo)** y un **backend en Node.js + Express**.  
+El proyecto está dividido en dos carpetas principales:  
+
+- `frontend/` → App móvil con Expo.  
+- `backend/` → Servidor Express con API REST.  
+
+---
+
+## 🚀 Requisitos previos
+
+Asegúrate de tener instalados los siguientes programas:
+
+- [Node.js](https://nodejs.org/) (v16 o superior recomendado)  
+- [npm](https://www.npmjs.com/) o [yarn](https://yarnpkg.com/)  
+- [Expo Go](https://expo.dev/client) en tu dispositivo móvil (disponible en App Store y Google Play)  
+- Git
+
+---
+
+## 📂 Instalación
+
+### 1. Clonar el repositorio
+```bash
+git clone https://github.com/tuusuario/lookation.git
+cd lookation
+
+cd backend
+npm install
+
+cd ..
+npm install
+

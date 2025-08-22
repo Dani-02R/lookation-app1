@@ -9,11 +9,13 @@ import LoginScreen from './src/screens/LoginScreen';
 import SignupScreen from './src/screens/SignupScreen';
 import RequestCodeScreen from './src/screens/request-code';
 import RequestPasswordScreen from './src/screens/request-password';
+import Home from './src/screens/Home';
 
 // Definimos los nombres de las pantallas y sus parámetros
 export type RootStackParamList = {
   Login: undefined;
   Signup: undefined;
+  Home: undefined;
   "request-password": { email: string };
   "request-code": { email: string };
 };
@@ -35,6 +37,7 @@ export default function App() {
           <Stack.Screen name="Signup" component={SignupScreen} />
           <Stack.Screen name="request-code" component={RequestCodeScreen} />
           <Stack.Screen name="request-password" component={RequestPasswordScreen} />
+          <Stack.Screen name="Home" component={Home} />
         </Stack.Navigator>
       </NavigationContainer>
 

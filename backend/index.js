@@ -64,6 +64,6 @@ app.post("/verify-code", async (req, res) => {
 });
 
 app.listen(3000, "0.0.0.0", () => {
-  console.log("Server running on http://192.168.0.13:3000");
+  console.log("Server running on http://192.168.56.1:3000");
 });
 

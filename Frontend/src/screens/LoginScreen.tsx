@@ -20,6 +20,7 @@ export default function LoginScreen() {
   const handleForgotPassword = () => {
     navigation.navigate('request-code', { email });
   };
+  
 
   return (
     <View style={styles.container}>

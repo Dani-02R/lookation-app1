@@ -47,6 +47,7 @@ npm install react-native-screens react-native-safe-area-context
 npm install react-native-vector-icons
 npm install axios
 npm install react-native-flash-message
+npm install --save dev @react-native/typescript-config
 ```
 
 > Si usas iOS, ejecuta también:
@@ -106,3 +107,6 @@ npm install @react-native-firebase/app @react-native-firebase/auth
 ## Contacto
 
 Para más información o soporte sobre el proyecto, puedes
+
+adb temporal
+$env:PATH += ";C:\Users\Aprendiz\AppData\Local\Android\Sdk\platform-tools"

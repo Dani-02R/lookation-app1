@@ -96,7 +96,7 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: '#0082FA',
-    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0,
+      paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight! / 3 : 0,
   },
   container: { flex: 1, backgroundColor: '#fff' },
 

@@ -1,146 +1,181 @@
 // frontend/src/screens/SignupScreen.tsx
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ImageBackground, Image } from 'react-native';
-import AntDesign from 'react-native-vector-icons/AntDesign';
+import { 
+  View, Text, TextInput, TouchableOpacity, 
+  StyleSheet, ImageBackground, SafeAreaView, StatusBar, Platform 
+} from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../../App';
+import { widthPercentageToDP as wp, heightPercentageToDP as hp } from 'react-native-responsive-screen';
 
 type SignupScreenProp = NativeStackNavigationProp<RootStackParamList, 'Signup'>;
 
 export default function SignupScreen() {
   const navigation = useNavigation<SignupScreenProp>();
-
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
 
   const handleSignup = () => {
-    console.log('Email:', email, 'Password:', password, 'Confirm:', confirmPassword);
-    navigation.replace('Login'); // evita volver atrás
+    console.log('Signup ->', email, password, confirmPassword);
   };
 
   return (
-    <View style={styles.container}>
-      <ImageBackground
-        source={require('../assets/signup-img.png')}
-        style={styles.header}
-        resizeMode="cover"
-      />
+    <SafeAreaView style={styles.safeArea}>
+      <StatusBar barStyle="light-content" backgroundColor="#0082FA" />
 
-      <View style={styles.card}>
-        <Text style={styles.welcome}>¡Crea tu cuenta en Lookation!</Text>
+      <View style={styles.container}>
+        {/* Fondo del signup */}
+        <ImageBackground
+          source={require('../assets/signup-img.png')}
+          style={styles.header}
+          resizeMode="cover"
+        />
 
-        {/* Tabs */}
-        <View style={styles.tabContainer}>
-          <TouchableOpacity style={styles.tab} onPress={() => navigation.navigate('Login')}>
-            <Text style={styles.inactiveTabText}>Log in</Text>
-          </TouchableOpacity>
-          <View style={[styles.tab, styles.activeTab]}>
-            <Text style={styles.activeTabText}>Sign up</Text>
+        {/* Tarjeta */}
+        <View style={styles.card}>
+          <Text style={styles.welcome}>Crea tu cuenta</Text>
+
+          {/* Tabs */}
+          <View style={styles.tabContainer}>
+            <TouchableOpacity style={styles.tab} onPress={() => navigation.navigate('Login')}>
+              <Text style={styles.inactiveTabText}>Log in</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.tab, styles.activeTab]}>
+              <Text style={styles.activeTabText}>Sign up</Text>
+            </TouchableOpacity>
           </View>
-        </View>
 
-        {/* Inputs */}
-        <TextInput
-          style={styles.input}
-          placeholder="E-mail"
-          placeholderTextColor="#aaa"
-          keyboardType="email-address"
-          autoCapitalize="none"
-          value={email}
-          onChangeText={setEmail}
-        />
-        <TextInput
-          style={styles.input}
-          placeholder="Password"
-          placeholderTextColor="#aaa"
-          secureTextEntry
-          value={password}
-          onChangeText={setPassword}
-        />
-        <TextInput
-          style={styles.input}
-          placeholder="Confirm password"
-          placeholderTextColor="#aaa"
-          secureTextEntry
-          value={confirmPassword}
-          onChangeText={setConfirmPassword}
-        />
+          {/* Inputs */}
+          <TextInput
+            style={styles.input}
+            placeholder="E-mail"
+            placeholderTextColor="#aaa"
+            keyboardType="email-address"
+            autoCapitalize="none"
+            value={email}
+            onChangeText={setEmail}
+          />
+          <TextInput
+            style={styles.input}
+            placeholder="Password"
+            placeholderTextColor="#aaa"
+            secureTextEntry
+            value={password}
+            onChangeText={setPassword}
+          />
+          <TextInput
+            style={styles.input}
+            placeholder="Confirm password"
+            placeholderTextColor="#aaa"
+            secureTextEntry
+            value={confirmPassword}
+            onChangeText={setConfirmPassword}
+          />
 
-        {/* Divider */}
-        <View style={styles.orContainer}>
-          <View style={styles.line} />
-          <Text style={styles.orText}>Or</Text>
-          <View style={styles.line} />
-        </View>
-
-        {/* Botones sociales con sombras */}
-        <View style={styles.socialContainer}>
-          <TouchableOpacity style={styles.socialBtn}>
-            <Image source={require('../assets/google-logo.png')} style={{ width: 26, height: 26 }} />
+          {/* Botón signup */}
+          <TouchableOpacity style={styles.loginBtn} onPress={handleSignup}>
+            <Text style={styles.loginBtnText}>Sign up</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.socialBtn}>
-            <AntDesign name="facebook-square" size={28} color="#1877F2" />
-          </TouchableOpacity>
-        </View>
 
-        {/* Botón de registro */}
-        <TouchableOpacity style={styles.loginBtn} onPress={handleSignup}>
-          <Text style={styles.loginBtnText}>Sign up</Text>
-        </TouchableOpacity>
-
-        {/* Link al login */}
-        <Text style={styles.registerText}>
-          ¿Ya tienes cuenta?{' '}
-          <Text style={styles.registerLink} onPress={() => navigation.navigate('Login')}>
-            Inicia sesión
+          {/* Ya tienes cuenta */}
+          <Text style={styles.registerText}>
+            ¿Ya tienes cuenta?{' '}
+            <Text style={styles.registerLink} onPress={() => navigation.navigate('Login')}>
+              Inicia sesión
+            </Text>
           </Text>
-        </Text>
+        </View>
       </View>
-    </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+    backgroundColor: '#0082FA',
+    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0,
+  },
   container: { flex: 1, backgroundColor: '#fff' },
-  header: { height: 345, justifyContent: 'center', alignItems: 'center', backgroundColor: '#0082FA', width: '100%' },
+
+  header: {
+    height: hp('40%'),
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#0082FA',
+    width: '100%',
+  },
+
   card: {
     backgroundColor: '#fff',
-    marginHorizontal: 30,
+    marginHorizontal: wp('7%'),
     borderRadius: 18,
-    padding: 18,
-    marginTop: -55,
+    padding: wp('5%'),
+    marginTop: -hp('7%'),
     elevation: 5,
     shadowColor: '#000',
     shadowOpacity: 0.1,
     shadowOffset: { width: 0, height: 4 },
     shadowRadius: 10,
   },
-  welcome: { fontSize: 17, fontWeight: 'bold', color: '#0082FA', textAlign: 'center', marginBottom: 10 },
-  tabContainer: { flexDirection: 'row', marginBottom: 15, borderRadius: 20, backgroundColor: '#eee', overflow: 'hidden' },
-  tab: { flex: 1, paddingVertical: 9, alignItems: 'center' },
-  activeTab: { backgroundColor: '#0082FA' },
-  activeTabText: { color: '#fff', fontWeight: 'bold', fontSize: 15 },
-  inactiveTabText: { color: '#777', fontSize: 15 },
-  input: { borderBottomWidth: 1, borderColor: '#ddd', marginVertical: 8, paddingVertical: 8, paddingHorizontal: 6, fontSize: 15 },
-  orContainer: { flexDirection: 'row', alignItems: 'center', marginVertical: 15 },
-  line: { flex: 1, height: 1, backgroundColor: '#ddd' },
-  orText: { marginHorizontal: 8, color: '#888', fontSize: 13 },
-  socialContainer: { flexDirection: 'row', justifyContent: 'center', marginBottom: 15 },
-  socialBtn: {
-    backgroundColor: '#fff',
-    padding: 10,
-    borderRadius: 12,
-    marginHorizontal: 12,
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOpacity: 0.1,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 5,
+
+  welcome: {
+    fontSize: wp('4.5%'),
+    fontWeight: 'bold',
+    color: '#0082FA',
+    textAlign: 'center',
+    marginBottom: hp('1.5%'),
   },
-  loginBtn: { backgroundColor: '#0082FA', borderRadius: 10, marginTop: 12, height: 52, alignItems: 'center', justifyContent: 'center' },
-  loginBtnText: { color: '#fff', textAlign: 'center', fontWeight: 'bold', fontSize: 17 },
-  registerText: { textAlign: 'center', marginTop: 14, color: '#666', fontSize: 13 },
-  registerLink: { color: '#0082FA', fontWeight: 'bold' },
+
+  tabContainer: {
+    flexDirection: 'row',
+    marginBottom: hp('2%'),
+    borderRadius: 20,
+    backgroundColor: '#eee',
+    overflow: 'hidden',
+  },
+
+  tab: { flex: 1, paddingVertical: hp('1.2%'), alignItems: 'center' },
+  activeTab: { backgroundColor: '#0082FA' },
+  activeTabText: { color: '#fff', fontWeight: 'bold', fontSize: wp('4%') },
+  inactiveTabText: { color: '#777', fontSize: wp('4%') },
+
+  input: {
+    borderBottomWidth: 1,
+    borderColor: '#ddd',
+    marginVertical: hp('1%'),
+    paddingVertical: hp('1%'),
+    paddingHorizontal: wp('2%'),
+    fontSize: wp('3.8%'),
+  },
+
+  loginBtn: {
+    backgroundColor: '#0082FA',
+    borderRadius: 10,
+    marginTop: hp('2%'),
+    height: hp('6.5%'),
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  loginBtnText: {
+    color: '#fff',
+    textAlign: 'center',
+    fontWeight: 'bold',
+    fontSize: wp('4.5%'),
+  },
+
+  registerText: {
+    textAlign: 'center',
+    marginTop: hp('2%'),
+    color: '#666',
+    fontSize: wp('3.3%'),
+  },
+
+  registerLink: {
+    color: '#0082FA',
+    fontWeight: 'bold',
+  },
 });

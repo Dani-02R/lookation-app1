@@ -110,3 +110,4 @@ Para más información o soporte sobre el proyecto, puedes
 
 adb temporal
 $env:PATH += ";C:\Users\Aprendiz\AppData\Local\Android\Sdk\platform-tools"
+npm install react-native-safe-area-context

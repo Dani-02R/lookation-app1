@@ -2,7 +2,8 @@
 import React from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import FlashMessage from 'react-native-flash-message'; // 🔑 import
+import FlashMessage from 'react-native-flash-message'; 
+import { SafeAreaProvider } from 'react-native-safe-area-context'; // ✅ import
 
 // Screens
 import LoginScreen from './src/screens/LoginScreen';
@@ -24,7 +25,7 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 
 export default function App() {
   return (
-    <>
+    <SafeAreaProvider> 
       <NavigationContainer>
         <Stack.Navigator
           initialRouteName="Login"
@@ -43,7 +44,6 @@ export default function App() {
 
       {/* 🔑 FlashMessage debe estar afuera del NavigationContainer */}
       <FlashMessage position="top" />
-    </>
+    </SafeAreaProvider>
   );
 }
- 

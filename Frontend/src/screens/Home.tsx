@@ -7,11 +7,30 @@ import {
   Image,
   Switch,
   SafeAreaView,
+  TouchableOpacity,
 } from "react-native";
+import { signOutGoogle } from "../auth/GoogleSignIn";
+import { useNavigation } from "@react-navigation/native";
+import { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import { RootStackParamList } from "../../App"; // Ajusta según tu App.tsx
 
 const Home = () => {
   const [isEnabled, setIsEnabled] = useState(true);
   const toggleSwitch = () => setIsEnabled((prev) => !prev);
+
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+
+  const handleLogout = async () => {
+    try {
+      await signOutGoogle();
+      navigation.reset({
+        index: 0,
+        routes: [{ name: "Login" }],
+      });
+    } catch (error) {
+      console.error("Error al cerrar sesión:", error);
+    }
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -31,6 +50,11 @@ const Home = () => {
           <Text style={styles.title}>Onlookation</Text>
         </View>
       </View>
+
+      {/* BOTÓN DE LOGOUT */}
+      <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+        <Text style={styles.logoutText}>Cerrar sesión</Text>
+      </TouchableOpacity>
 
       {/* MAPA SIMULADO */}
       <View style={styles.mapContainer}>
@@ -76,6 +100,20 @@ const styles = StyleSheet.create({
   avatar: { width: 50, height: 50, borderRadius: 25 },
   titleContainer: { marginLeft: 12, flexDirection: "row", alignItems: "center" },
   title: { marginLeft: 8, fontSize: 18, fontWeight: "bold", color: "#007AFF" },
+
+  logoutButton: {
+    backgroundColor: "#FF4D4D",
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    alignSelf: "center",
+    marginVertical: 12,
+  },
+  logoutText: {
+    color: "#fff",
+    fontWeight: "bold",
+    fontSize: 16,
+  },
 
   mapContainer: {
     flex: 1,

@@ -20,7 +20,8 @@ type RequestCodeScreenNavigationProp = NativeStackNavigationProp<
   "request-code"
 >;
 
-const emailImage = require("../assets/recovery-email.png");
+// Imagen exportada (el chico con el celular blanco sobre azul)
+const recoveryImage = require("../assets/recovery-img.png");
 
 export default function RequestCodeScreen() {
   const [email, setEmail] = useState("");
@@ -38,7 +39,7 @@ export default function RequestCodeScreen() {
     }
 
     try {
-      await axios.post("http://192.168.56.1:3000/send-code", { email });
+      await axios.post("http://192.168.1.24:3000/send-code", { email });
 
       showMessage({
         message: "Código enviado ✅",
@@ -67,27 +68,40 @@ export default function RequestCodeScreen() {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.logo}>LOOKATION</Text>
+      {/* Imagen arriba en absoluto */}
+      <Image source={recoveryImage} style={styles.image} resizeMode="contain" />
 
-      <Image source={emailImage} style={styles.image} resizeMode="contain" />
+      {/* Card blanca centrada */}
+      <View style={styles.card}>
+        <Text style={styles.title}>¡Recupera tu contraseña!</Text>
+        <Text style={styles.subtitle}>
+          Ingresa tu correo electrónico para enviarte un código de recuperación.
+        </Text>
 
-      <Text style={styles.subtitle}>
-        Ingresa tu e-mail para recuperar contraseña
-      </Text>
+        <TextInput
+          style={styles.input}
+          placeholder="Correo electrónico"
+          placeholderTextColor="#999"
+          keyboardType="email-address"
+          autoCapitalize="none"
+          value={email}
+          onChangeText={setEmail}
+        />
 
-      <TextInput
-        style={styles.input}
-        placeholder="Correo electrónico"
-        placeholderTextColor="#999"
-        keyboardType="email-address"
-        autoCapitalize="none"
-        value={email}
-        onChangeText={setEmail}
-      />
+        <TouchableOpacity style={styles.button} onPress={sendCode}>
+          <Text style={styles.buttonText}>Enviar código</Text>
+        </TouchableOpacity>
 
-      <TouchableOpacity style={styles.button} onPress={sendCode}>
-        <Text style={styles.buttonText}>ENVIAR CÓDIGO</Text>
-      </TouchableOpacity>
+        <Text style={styles.footerText}>
+          ¿Recordaste tu contraseña?{" "}
+          <Text
+            style={styles.link}
+            onPress={() => navigation.navigate("Login")}
+          >
+            Inicia sesión
+          </Text>
+        </Text>
+      </View>
     </View>
   );
 }
@@ -95,54 +109,76 @@ export default function RequestCodeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#1573E3",
+    backgroundColor: "#0082FA", // fondo azul
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 20,
   },
-  logo: {
-    fontSize: 28,
-    fontWeight: "bold",
-    color: "white",
-    marginBottom: 30,
-  },
   image: {
-    width: 200,
-    height: 200,
-    marginBottom: 20,
+    position: "absolute",
+    top: 120, // 👈 ajusta la distancia desde arriba
+    width: 300, // más grande
+    height: 400,
+  },
+  card: {
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    padding: 20,
+    width: "100%",
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 5,
+    marginTop: 210,
+  },
+  title: {
+    fontSize: 20,
+    fontWeight: "bold",
+    color: "#000",
+    marginBottom: 8,
+    textAlign: "center",
   },
   subtitle: {
-    color: "white",
-    fontSize: 16,
+    color: "#555",
+    fontSize: 14,
     textAlign: "center",
     marginBottom: 20,
+    paddingHorizontal: 10,
   },
   input: {
-    backgroundColor: "white",
-    borderRadius: 25,
+    backgroundColor: "#f9f9f9",
+    borderRadius: 10,
     width: "100%",
     paddingVertical: 12,
     paddingHorizontal: 20,
     fontSize: 16,
+    borderWidth: 1,
+    borderColor: "#ddd",
     marginBottom: 20,
   },
   button: {
-    backgroundColor: "#0D5EC0",
-    borderRadius: 25,
+    backgroundColor: "#0082FA",
+    borderRadius: 10,
     paddingVertical: 14,
     paddingHorizontal: 40,
     width: "100%",
     alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 5,
+    marginBottom: 15,
   },
   buttonText: {
     color: "white",
     fontSize: 16,
     fontWeight: "bold",
   },
+  footerText: {
+    color: "#333",
+    fontSize: 14,
+    textAlign: "center",
+  },
+  link: {
+    color: "#0082FA",
+    fontWeight: "bold",
+  },
 });
- 

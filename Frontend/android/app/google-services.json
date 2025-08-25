@@ -12,7 +12,20 @@
           "package_name": "com.lookationapp1"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "677584857229-r7bujnoefj5idiq5j6m7e8jbm6omjuq8.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.lookationapp1",
+            "certificate_hash": "5e8f16062ea3cd2c4a0d547876baa6f38cabf625"
+          }
+        },
+        {
+          "client_id": "677584857229-e7q3gkost1k7be9ik85kpl57n7j7o0ls.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyDlqTyMPD6LgQddAgCVqBeLLDC3UqAl-pw"
@@ -20,7 +33,12 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "677584857229-6j3opm9eks84lgm1vidfqmpson0mv36o.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }

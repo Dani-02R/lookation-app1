@@ -2,16 +2,15 @@
 import React, { useState } from 'react';
 import { 
   View, Text, TextInput, TouchableOpacity, 
-  StyleSheet, ImageBackground, SafeAreaView, StatusBar, Platform, Image
+  StyleSheet, ImageBackground, SafeAreaView, StatusBar, 
+  Platform, Image, Alert 
 } from 'react-native';
 import AntDesign from 'react-native-vector-icons/AntDesign';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../../App';
 import { widthPercentageToDP as wp, heightPercentageToDP as hp } from 'react-native-responsive-screen';
-import { signInWithGoogle } from '../auth/GoogleSingIn';
-// Importa la función de autenticación
-
+import { signInWithGoogle } from '../auth/GoogleSignIn'; // ✅ Importa tu helper
 
 type LoginScreenProp = NativeStackNavigationProp<RootStackParamList, 'Login'>;
 
@@ -20,23 +19,31 @@ export default function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
+  // Login normal con email/contraseña (falta conectar con Firebase Auth Email/Password si lo usas)
   const handleLogin = () => {
     console.log('Email:', email, 'Password:', password);
+    // 👉 Aquí conectarías con Firebase auth().signInWithEmailAndPassword(email, password)
   };
 
   const handleForgotPassword = () => {
     navigation.navigate('request-code', { email });
   };
 
+  // ✅ Google Login
   const handleGoogleLogin = async () => {
-    const userCredential = await signInWithGoogle();
+    try {
+      const userCredential = await signInWithGoogle();
 
-    if (userCredential) {
-      const user = userCredential.user;
-      console.log('Usuario autenticado:', user.displayName);
-      navigation.navigate('Home'); //pantalla despues de login con google
-    } else {
-      console.log('Inicio de sesión con Google fallido');
+      if (userCredential) {
+        const user = userCredential.user;
+        console.log('✅ Usuario autenticado con Google:', user.displayName);
+        navigation.navigate('Home'); // 👈 Redirige a Home
+      } else {
+        Alert.alert("Error", "El inicio de sesión con Google falló.");
+      }
+    } catch (error) {
+      console.error("❌ Error en Google Sign-In:", error);
+      Alert.alert("Error", "No se pudo iniciar sesión con Google.");
     }
   };
 
@@ -62,7 +69,10 @@ export default function LoginScreen() {
             <TouchableOpacity style={[styles.tab, styles.activeTab]}>
               <Text style={styles.activeTabText}>Log in</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.tab} onPress={() => navigation.navigate('Signup')}>
+            <TouchableOpacity 
+              style={styles.tab} 
+              onPress={() => navigation.navigate('Signup')}
+            >
               <Text style={styles.inactiveTabText}>Sign up</Text>
             </TouchableOpacity>
           </View>
@@ -100,17 +110,18 @@ export default function LoginScreen() {
 
           {/* Botones sociales */}
           <View style={styles.socialContainer}>
-             <TouchableOpacity style={styles.socialBtn} onPress={handleGoogleLogin}>
-             <Image
-             source={require('../assets/google-logo.png')}
-             style={{ width: 26, height: 26, resizeMode: 'contain' }}
+            {/* Google */}
+            <TouchableOpacity style={styles.socialBtn} onPress={handleGoogleLogin}>
+              <Image
+                source={require('../assets/google-logo.png')}
+                style={{ width: 26, height: 26, resizeMode: 'contain' }}
               />
             </TouchableOpacity>
-           <TouchableOpacity style={styles.socialBtn}>
-             <AntDesign name="facebook-square" size={wp('7%')} color="#1877F2" />
-           </TouchableOpacity>
+            {/* Facebook */}
+            <TouchableOpacity style={styles.socialBtn}>
+              <AntDesign name="facebook-square" size={wp('7%')} color="#1877F2" />
+            </TouchableOpacity>
           </View>
-
 
           {/* Botón login */}
           <TouchableOpacity style={styles.loginBtn} onPress={handleLogin}>
@@ -119,8 +130,11 @@ export default function LoginScreen() {
 
           {/* Registro */}
           <Text style={styles.registerText}>
-            No tienes cuenta?{' '}
-            <Text style={styles.registerLink} onPress={() => navigation.navigate('Signup')}>
+            ¿No tienes cuenta?{' '}
+            <Text 
+              style={styles.registerLink} 
+              onPress={() => navigation.navigate('Signup')}
+            >
               Regístrate
             </Text>
           </Text>
@@ -135,10 +149,9 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#0082FA',
     paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight! / 3 : 0,
-
   },
   header: {
-    height: hp('42%'), // 📌 mismo estilo que Signup
+    height: hp('42%'),
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: '#0082FA',
@@ -153,7 +166,7 @@ const styles = StyleSheet.create({
     marginHorizontal: wp('7%'),
     borderRadius: 18,
     padding: wp('4%'),
-    marginTop: -hp('8%'), // 📌 flota sobre la imagen, como Signup
+    marginTop: -hp('8%'),
     elevation: 5,
     shadowColor: '#000',
     shadowOpacity: 0.1,

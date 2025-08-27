@@ -1,16 +1,18 @@
 // frontend/src/screens/LoginScreen.tsx
 import React, { useState } from 'react';
-import { 
-  View, Text, TextInput, TouchableOpacity, 
-  StyleSheet, ImageBackground, SafeAreaView, StatusBar, 
-  Platform, Image, Alert 
+import {
+  View, Text, TextInput, TouchableOpacity,
+  StyleSheet, ImageBackground, SafeAreaView,
+  StatusBar, Platform, Image, Alert, ActivityIndicator
 } from 'react-native';
 import AntDesign from 'react-native-vector-icons/AntDesign';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../../App';
 import { widthPercentageToDP as wp, heightPercentageToDP as hp } from 'react-native-responsive-screen';
-import { signInWithGoogle } from '../auth/GoogleSignIn'; // ✅ Importa tu helper
+import { signInWithGoogle } from '../auth/GoogleSignIn';
+import auth from '@react-native-firebase/auth';
+import { showMessage } from 'react-native-flash-message';
 
 type LoginScreenProp = NativeStackNavigationProp<RootStackParamList, 'Login'>;
 
@@ -18,32 +20,51 @@ export default function LoginScreen() {
   const navigation = useNavigation<LoginScreenProp>();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [loadingEmail, setLoadingEmail] = useState(false);
+  const [loadingGoogle, setLoadingGoogle] = useState(false);
 
-  // Login normal con email/contraseña (falta conectar con Firebase Auth Email/Password si lo usas)
-  const handleLogin = () => {
-    console.log('Email:', email, 'Password:', password);
-    // 👉 Aquí conectarías con Firebase auth().signInWithEmailAndPassword(email, password)
+  const handleLogin = async () => {
+    const e = email.trim().toLowerCase();
+    const p = password;
+    if (!e || !p) {
+      showMessage({ type: 'warning', message: 'Completa email y contraseña.' });
+      return;
+    }
+    try {
+      setLoadingEmail(true);
+      await auth().signInWithEmailAndPassword(e, p);
+      // ❌ No navegues manual: App.tsx (onAuthStateChanged + useProfile) decide
+    } catch (err: any) {
+      let msg = 'No se pudo iniciar sesión.';
+      if (err?.code === 'auth/invalid-email') msg = 'Email inválido.';
+      else if (err?.code === 'auth/user-not-found') msg = 'Usuario no encontrado.';
+      else if (err?.code === 'auth/wrong-password') msg = 'Contraseña incorrecta.';
+      else if (err?.code === 'auth/too-many-requests') msg = 'Demasiados intentos. Intenta más tarde.';
+      showMessage({ type: 'danger', message: msg });
+    } finally {
+      setLoadingEmail(false);
+    }
   };
 
   const handleForgotPassword = () => {
     navigation.navigate('request-code', { email });
   };
 
-  // ✅ Google Login
   const handleGoogleLogin = async () => {
     try {
+      setLoadingGoogle(true);
       const userCredential = await signInWithGoogle();
-
-      if (userCredential) {
-        const user = userCredential.user;
-        console.log('✅ Usuario autenticado con Google:', user.displayName);
-        navigation.navigate('Home'); // 👈 Redirige a Home
-      } else {
-        Alert.alert("Error", "El inicio de sesión con Google falló.");
+      if (!userCredential) {
+        showMessage({ type: 'danger', message: 'El inicio de sesión con Google falló.' });
+        return;
       }
+      // ✅ No navegues manualmente; App.tsx te llevará a Home o CompleteProfile
+      showMessage({ type: 'success', message: 'Autenticado con Google.' });
     } catch (error) {
-      console.error("❌ Error en Google Sign-In:", error);
-      Alert.alert("Error", "No se pudo iniciar sesión con Google.");
+      console.error('❌ Error en Google Sign-In:', error);
+      showMessage({ type: 'danger', message: 'No se pudo iniciar sesión con Google.' });
+    } finally {
+      setLoadingGoogle(false);
     }
   };
 
@@ -69,8 +90,8 @@ export default function LoginScreen() {
             <TouchableOpacity style={[styles.tab, styles.activeTab]}>
               <Text style={styles.activeTabText}>Log in</Text>
             </TouchableOpacity>
-            <TouchableOpacity 
-              style={styles.tab} 
+            <TouchableOpacity
+              style={styles.tab}
               onPress={() => navigation.navigate('Signup')}
             >
               <Text style={styles.inactiveTabText}>Sign up</Text>
@@ -111,28 +132,44 @@ export default function LoginScreen() {
           {/* Botones sociales */}
           <View style={styles.socialContainer}>
             {/* Google */}
-            <TouchableOpacity style={styles.socialBtn} onPress={handleGoogleLogin}>
-              <Image
-                source={require('../assets/google-logo.png')}
-                style={{ width: 26, height: 26, resizeMode: 'contain' }}
-              />
+            <TouchableOpacity
+              style={[styles.socialBtn, loadingGoogle && { opacity: 0.6 }]}
+              onPress={handleGoogleLogin}
+              disabled={loadingGoogle || loadingEmail}
+            >
+              {loadingGoogle ? (
+                <ActivityIndicator />
+              ) : (
+                <Image
+                  source={require('../assets/google-logo.png')}
+                  style={{ width: 26, height: 26, resizeMode: 'contain' }}
+                />
+              )}
             </TouchableOpacity>
-            {/* Facebook */}
-            <TouchableOpacity style={styles.socialBtn}>
+            {/* Facebook (placeholder) */}
+            <TouchableOpacity style={styles.socialBtn} disabled>
               <AntDesign name="facebook-square" size={wp('7%')} color="#1877F2" />
             </TouchableOpacity>
           </View>
 
           {/* Botón login */}
-          <TouchableOpacity style={styles.loginBtn} onPress={handleLogin}>
-            <Text style={styles.loginBtnText}>Log in</Text>
+          <TouchableOpacity
+            style={[styles.loginBtn, (loadingEmail || loadingGoogle) && { opacity: 0.7 }]}
+            onPress={handleLogin}
+            disabled={loadingEmail || loadingGoogle}
+          >
+            {loadingEmail ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={styles.loginBtnText}>Log in</Text>
+            )}
           </TouchableOpacity>
 
           {/* Registro */}
           <Text style={styles.registerText}>
             ¿No tienes cuenta?{' '}
-            <Text 
-              style={styles.registerLink} 
+            <Text
+              style={styles.registerLink}
               onPress={() => navigation.navigate('Signup')}
             >
               Regístrate

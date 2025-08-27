@@ -1,13 +1,16 @@
 // frontend/src/screens/SignupScreen.tsx
 import React, { useState } from 'react';
-import { 
-  View, Text, TextInput, TouchableOpacity, 
-  StyleSheet, ImageBackground, SafeAreaView, StatusBar, Platform 
+import {
+  View, Text, TextInput, TouchableOpacity,
+  StyleSheet, ImageBackground, SafeAreaView,
+  StatusBar, Platform, ActivityIndicator
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../../App';
 import { widthPercentageToDP as wp, heightPercentageToDP as hp } from 'react-native-responsive-screen';
+import auth from '@react-native-firebase/auth';
+import { showMessage } from 'react-native-flash-message';
 
 type SignupScreenProp = NativeStackNavigationProp<RootStackParamList, 'Signup'>;
 
@@ -16,9 +19,48 @@ export default function SignupScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const handleSignup = () => {
-    console.log('Signup ->', email, password, confirmPassword);
+  const handleSignup = async () => {
+    const e = email.trim().toLowerCase();
+    const p1 = password;
+    const p2 = confirmPassword;
+
+    if (!e || !p1 || !p2) {
+      showMessage({ type: 'warning', message: 'Completa todos los campos.' });
+      return;
+    }
+    // Validaciones simples
+    const emailOk = /\S+@\S+\.\S+/.test(e);
+    if (!emailOk) {
+      showMessage({ type: 'warning', message: 'Ingresa un email válido.' });
+      return;
+    }
+    if (p1.length < 6) {
+      showMessage({ type: 'warning', message: 'La contraseña debe tener al menos 6 caracteres.' });
+      return;
+    }
+    if (p1 !== p2) {
+      showMessage({ type: 'warning', message: 'Las contraseñas no coinciden.' });
+      return;
+    }
+
+    try {
+      setLoading(true);
+      await auth().createUserWithEmailAndPassword(e, p1);
+      // ❌ No navegues manualmente. App.tsx (onAuthStateChanged + upsert) decide:
+      // - Si isProfileComplete=false → CompleteProfile
+      // - Si true → Home
+      showMessage({ type: 'success', message: 'Cuenta creada. ¡Bienvenido!' });
+    } catch (err: any) {
+      let msg = 'No se pudo crear la cuenta.';
+      if (err?.code === 'auth/email-already-in-use') msg = 'Ese email ya está registrado.';
+      else if (err?.code === 'auth/invalid-email') msg = 'Email inválido.';
+      else if (err?.code === 'auth/weak-password') msg = 'Contraseña muy débil.';
+      showMessage({ type: 'danger', message: msg });
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -75,8 +117,16 @@ export default function SignupScreen() {
           />
 
           {/* Botón signup */}
-          <TouchableOpacity style={styles.loginBtn} onPress={handleSignup}>
-            <Text style={styles.loginBtnText}>Sign up</Text>
+          <TouchableOpacity
+            style={[styles.loginBtn, loading && { opacity: 0.7 }]}
+            onPress={handleSignup}
+            disabled={loading}
+          >
+            {loading ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={styles.loginBtnText}>Sign up</Text>
+            )}
           </TouchableOpacity>
 
           {/* Ya tienes cuenta */}
@@ -96,7 +146,7 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: '#0082FA',
-      paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight! / 3 : 0,
+    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight! / 3 : 0,
   },
   container: { flex: 1, backgroundColor: '#fff' },
 

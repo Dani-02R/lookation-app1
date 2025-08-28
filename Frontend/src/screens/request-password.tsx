@@ -1,11 +1,19 @@
-// RequestPasswordScreen.tsx
+// frontend/src/screens/request-password.tsx
 import axios from "axios";
 import React, { useState } from "react";
-import { StyleSheet, Text, TextInput, TouchableOpacity, View, Image } from "react-native";
+import {
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+  Image,
+  ActivityIndicator,
+} from "react-native";
 import { useNavigation, useRoute } from "@react-navigation/native";
-import { showMessage } from "react-native-flash-message";
+import { toast } from "../utils/alerts";
 
-const API_URL = "http://192.168.1.24:3000"; // Cambia si usas otra IP
+const API_URL = "http://192.168.0.13:3000"; // Cambia si usas otra IP
 
 // Imagen nueva (la chica con la llave)
 const recoveryPasswordImage = require("../assets/recovery-password.png");
@@ -22,32 +30,26 @@ export default function RequestPasswordScreen() {
 
   // Paso 1: Verificar código
   const verifyCode = async () => {
+    const c = code.trim();
+    if (!c) {
+      toast.warn("Atención", "Ingresa el código de verificación.");
+      return;
+    }
+
     try {
       setLoading(true);
-      const res = await axios.post(`${API_URL}/verify-code`, { email, code });
+      const res = await axios.post(`${API_URL}/verify-code`, { email, code: c });
 
-      showMessage({
-        message: "✅ Código correcto",
-        description: res.data.message,
-        type: "success",
-        icon: "success",
-      });
-
+      toast.success("✅ Código correcto", res.data?.message ?? "Código verificado.");
       setCodeVerified(true);
     } catch (err: any) {
       let errorMsg = "Error verificando el código";
       if (axios.isAxiosError(err) && err.response?.data?.message) {
         errorMsg = err.response.data.message;
-      } else if (err instanceof Error) {
+      } else if (err?.message) {
         errorMsg = err.message;
       }
-
-      showMessage({
-        message: "Error",
-        description: errorMsg,
-        type: "danger",
-        icon: "danger",
-      });
+      toast.error("Error", errorMsg);
     } finally {
       setLoading(false);
     }
@@ -55,32 +57,30 @@ export default function RequestPasswordScreen() {
 
   // Paso 2: Cambiar contraseña
   const resetPassword = async () => {
+    const p = newPassword;
+    if (!p) {
+      toast.warn("Atención", "Ingresa la nueva contraseña.");
+      return;
+    }
+    if (p.length < 6) {
+      toast.warn("Atención", "La contraseña debe tener al menos 6 caracteres.");
+      return;
+    }
+
     try {
       setLoading(true);
-      await axios.post(`${API_URL}/reset-password`, { email, newPassword });
+      await axios.post(`${API_URL}/reset-password`, { email, newPassword: p });
 
-      showMessage({
-        message: "🎉 Contraseña actualizada",
-        description: "Ya puedes iniciar sesión",
-        type: "success",
-        icon: "success",
-      });
-
+      toast.success("🎉 Contraseña actualizada", "Ya puedes iniciar sesión.");
       navigation.navigate("Login" as never);
     } catch (err: any) {
       let errorMsg = "Error cambiando la contraseña";
       if (axios.isAxiosError(err) && err.response?.data?.message) {
         errorMsg = err.response.data.message;
-      } else if (err instanceof Error) {
+      } else if (err?.message) {
         errorMsg = err.message;
       }
-
-      showMessage({
-        message: "Error",
-        description: errorMsg,
-        type: "danger",
-        icon: "danger",
-      });
+      toast.error("Error", errorMsg);
     } finally {
       setLoading(false);
     }
@@ -106,10 +106,16 @@ export default function RequestPasswordScreen() {
               value={code}
               onChangeText={setCode}
             />
-            <TouchableOpacity style={styles.button} onPress={verifyCode} disabled={loading}>
-              <Text style={styles.buttonText}>
-                {loading ? "Verificando..." : "Verificar Código"}
-              </Text>
+            <TouchableOpacity
+              style={[styles.button, loading && { opacity: 0.7 }]}
+              onPress={verifyCode}
+              disabled={loading}
+            >
+              {loading ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.buttonText}>Verificar Código</Text>
+              )}
             </TouchableOpacity>
           </>
         ) : (
@@ -122,10 +128,16 @@ export default function RequestPasswordScreen() {
               value={newPassword}
               onChangeText={setNewPassword}
             />
-            <TouchableOpacity style={styles.button} onPress={resetPassword} disabled={loading}>
-              <Text style={styles.buttonText}>
-                {loading ? "Guardando..." : "Cambiar Contraseña"}
-              </Text>
+            <TouchableOpacity
+              style={[styles.button, loading && { opacity: 0.7 }]}
+              onPress={resetPassword}
+              disabled={loading}
+            >
+              {loading ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.buttonText}>Cambiar Contraseña</Text>
+              )}
             </TouchableOpacity>
           </>
         )}
@@ -134,17 +146,19 @@ export default function RequestPasswordScreen() {
   );
 }
 
+const PRIMARY = "#0082FA";
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#0082FA", // Igual que en RequestCodeScreen
+    backgroundColor: PRIMARY, // Igual que en RequestCodeScreen
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 20,
   },
   image: {
     position: "absolute",
-    top: 190, // 👈 igual que en RequestCodeScreen
+    top: 190, // igual que en RequestCodeScreen
     width: 300,
     height: 270,
   },
@@ -159,7 +173,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.2,
     shadowRadius: 4,
     elevation: 5,
-    marginTop: 210, // 👈 misma distancia que en RequestCodeScreen
+    marginTop: 210, // misma distancia que en RequestCodeScreen
   },
   title: {
     fontSize: 20,
@@ -186,7 +200,7 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   button: {
-    backgroundColor: "#0082FA",
+    backgroundColor: PRIMARY,
     borderRadius: 10,
     paddingVertical: 14,
     paddingHorizontal: 40,

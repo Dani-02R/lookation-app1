@@ -1,6 +1,6 @@
 // frontend/App.tsx
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, View } from 'react-native';
+import { ActivityIndicator, View, Platform } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import FlashMessage from 'react-native-flash-message';
@@ -89,7 +89,24 @@ export default function App() {
         )}
       </NavigationContainer>
 
-      <FlashMessage position="top" />
+      {/* Contenedor global de alertas (visible en TODA la app) */}
+      <FlashMessage
+        position="top"
+        floating
+        statusBarHeight={Platform.OS === 'android' ? 25 : 40}
+        style={{
+          borderRadius: 12,
+          marginTop: 12,
+          marginHorizontal: 8,
+          elevation: 6, // Android
+          shadowColor: '#000', // iOS
+          shadowOpacity: 0.12,
+          shadowOffset: { width: 0, height: 6 },
+          shadowRadius: 8,
+        }}
+        titleStyle={{ fontWeight: '700' }}
+        textStyle={{ fontSize: 14 }}
+      />
     </SafeAreaProvider>
   );
 }

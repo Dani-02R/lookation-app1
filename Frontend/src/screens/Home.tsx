@@ -8,12 +8,15 @@ import {
   Switch,
   SafeAreaView,
   TouchableOpacity,
+  StatusBar,
+  Platform,
 } from "react-native";
-import { signOutGoogle } from "../auth/GoogleSignIn";
 import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import { widthPercentageToDP as wp, heightPercentageToDP as hp } from "react-native-responsive-screen";
 import { RootStackParamList } from "../../App";
 import { useProfile } from "../hooks/useProfile";
+import { signOutGoogle } from "../auth/GoogleSignIn";
 
 const PRIMARY = "#0085FF";
 
@@ -26,10 +29,7 @@ const Home = () => {
 
   const handleLogout = async () => {
     try {
-      // Cierra sesión en Firebase y limpia/revoca Google
       await signOutGoogle();
-
-      // Reset de navegación a Login
       navigation.reset({ index: 0, routes: [{ name: "Login" }] });
     } catch (error) {
       console.error("Error al cerrar sesión:", error);
@@ -42,8 +42,16 @@ const Home = () => {
   const avatarSource =
     profile?.photoURL ? { uri: profile.photoURL } : require("../assets/Img-Perfil.jpeg");
 
+  // Preferir gamertag; fallback a displayName
+  const userLabel =
+    (profile?.gamertag && profile.gamertag.trim().length > 0)
+      ? `@${profile.gamertag}`
+      : (profile?.displayName ?? "");
+
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.safeArea}>
+      <StatusBar barStyle="dark-content" backgroundColor="#fff" />
+
       {/* HEADER */}
       <View style={styles.header}>
         <Image source={avatarSource} style={styles.avatar} />
@@ -54,10 +62,10 @@ const Home = () => {
             trackColor={{ false: "#767577", true: "#34C759" }}
             thumbColor={isEnabled ? "#fff" : "#f4f3f4"}
           />
-          <View style={{ marginLeft: 8 }}>
+          <View style={{ marginLeft: wp("2.5%") }}>
             <Text style={styles.title}>Onlookation</Text>
-            {!!profile?.displayName && (
-              <Text style={styles.subtitle}>{profile.displayName}</Text>
+            {!!userLabel && (
+              <Text style={styles.subtitle}>{userLabel}</Text>
             )}
           </View>
         </View>
@@ -109,98 +117,121 @@ const Home = () => {
 export default Home;
 
 const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+    backgroundColor: "#fff",
+    paddingTop: Platform.OS === "android" ? (StatusBar.currentHeight ?? 0) / 3 : 0,
+  },
+
   container: { flex: 1, backgroundColor: "#fff" },
 
   header: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: wp("5%"),
+    paddingVertical: hp("1.5%"),
     backgroundColor: "#fff",
     elevation: 2,
     shadowColor: "#000",
     shadowOpacity: 0.1,
     shadowRadius: 3,
+    shadowOffset: { width: 0, height: 2 },
   },
-  avatar: { width: 50, height: 50, borderRadius: 25 },
-  titleContainer: { marginLeft: 12, flexDirection: "row", alignItems: "center", flex: 1 },
-  title: { fontSize: 18, fontWeight: "bold", color: PRIMARY },
-  subtitle: { fontSize: 12, color: "#666" },
+  avatar: {
+    width: wp("14%"),
+    height: wp("14%"),
+    borderRadius: wp("7%"),
+  },
+  titleContainer: {
+    marginLeft: wp("3%"),
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+  },
+  title: { fontSize: wp("4.5%"), fontWeight: "bold", color: PRIMARY },
+  subtitle: { fontSize: wp("3%"), color: "#666", marginTop: hp("0.2%") },
 
   editBtn: {
     backgroundColor: PRIMARY,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingHorizontal: wp("3.5%"),
+    paddingVertical: hp("1%"),
     borderRadius: 10,
   },
-  editBtnText: { color: "#fff", fontWeight: "700" },
+  editBtnText: { color: "#fff", fontWeight: "700", fontSize: wp("3.6%") },
 
   // Banner
   banner: {
-    marginHorizontal: 16,
-    marginTop: 12,
+    marginHorizontal: wp("5%"),
+    marginTop: hp("1.5%"),
     backgroundColor: "#FFF7E6",
-    padding: 14,
+    padding: wp("4%"),
     borderRadius: 12,
   },
-  bannerTitle: { fontWeight: "700", marginBottom: 4, color: "#111" },
-  bannerDesc: { color: "#666", marginBottom: 10 },
+  bannerTitle: { fontWeight: "700", marginBottom: hp("0.5%"), color: "#111", fontSize: wp("4%") },
+  bannerDesc: { color: "#666", marginBottom: hp("1.2%"), fontSize: wp("3.3%") },
   bannerBtn: {
     alignSelf: "flex-start",
     backgroundColor: PRIMARY,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingHorizontal: wp("4%"),
+    paddingVertical: hp("1.2%"),
     borderRadius: 10,
   },
-  bannerBtnText: { color: "#fff", fontWeight: "700" },
+  bannerBtnText: { color: "#fff", fontWeight: "700", fontSize: wp("3.6%") },
 
   // Logout
   logoutButton: {
     backgroundColor: "#FF4D4D",
-    paddingVertical: 10,
-    paddingHorizontal: 20,
+    paddingVertical: hp("1.4%"),
+    paddingHorizontal: wp("6%"),
     borderRadius: 12,
     alignSelf: "center",
-    marginVertical: 12,
+    marginVertical: hp("1.5%"),
   },
-  logoutText: { color: "#fff", fontWeight: "bold", fontSize: 16 },
+  logoutText: { color: "#fff", fontWeight: "bold", fontSize: wp("4%") },
 
   // Mock de mapa
   mapContainer: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    gap: 20,
+    paddingVertical: hp("2%"),
   },
 
   room: {
-    width: 160,
-    height: 100,
+    width: wp("60%"),
+    height: hp("14%"),
     backgroundColor: "#f1f1f1",
-    borderRadius: 16,
+    borderRadius: wp("4%"),
     alignItems: "center",
     justifyContent: "center",
     elevation: 2,
+    shadowColor: "#000",
+    shadowOpacity: 0.08,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 4,
+    marginVertical: hp("1%"),
   },
-  roomLabel: { fontSize: 16, fontWeight: "600", color: "#333" },
-  roomAvatar: { marginTop: 8, width: 40, height: 40, borderRadius: 20 },
+  roomLabel: { fontSize: wp("4%"), fontWeight: "600", color: "#333" },
+  roomAvatar: { marginTop: hp("1%"), width: wp("10%"), height: wp("10%"), borderRadius: wp("5%") },
 
   hall: {
-    width: 120,
-    height: 60,
+    width: wp("45%"),
+    height: hp("8%"),
     backgroundColor: "#d1f7d6",
-    borderRadius: 12,
+    borderRadius: wp("3%"),
     alignItems: "center",
     justifyContent: "center",
+    marginVertical: hp("1%"),
   },
-  hallLabel: { fontSize: 16, fontWeight: "500", color: "#333" },
+  hallLabel: { fontSize: wp("4%"), fontWeight: "500", color: "#333" },
 
   destination: {
     backgroundColor: PRIMARY,
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: 12,
+    paddingVertical: hp("1.5%"),
+    paddingHorizontal: wp("5%"),
+    borderRadius: wp("3%"),
+    marginTop: hp("1%"),
   },
-  destinationText: { color: "#fff", fontWeight: "bold", fontSize: 14 },
-  destinationTime: { color: "#fff", fontSize: 12 },
+  destinationText: { color: "#fff", fontWeight: "bold", fontSize: wp("3.8%") },
+  destinationTime: { color: "#fff", fontSize: wp("3.2%"), marginTop: hp("0.2%") },
 });

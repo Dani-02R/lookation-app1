@@ -1,4 +1,4 @@
-// RequestCodeScreen.tsx
+// frontend/src/screens/RequestCodeScreen.tsx
 import axios from "axios";
 import React, { useState } from "react";
 import {
@@ -8,11 +8,12 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  ActivityIndicator,
 } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { RootStackParamList } from "../../App";
-import { showMessage } from "react-native-flash-message";
+import { toast } from "../utils/alerts";
 
 // Tipamos la navegación
 type RequestCodeScreenNavigationProp = NativeStackNavigationProp<
@@ -22,47 +23,42 @@ type RequestCodeScreenNavigationProp = NativeStackNavigationProp<
 
 // Imagen exportada (el chico con el celular blanco sobre azul)
 const recoveryImage = require("../assets/recovery-img.png");
+const API_URL = "http://192.168.0.13:3000";
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function RequestCodeScreen() {
   const [email, setEmail] = useState("");
+  const [loading, setLoading] = useState(false);
   const navigation = useNavigation<RequestCodeScreenNavigationProp>();
 
   const sendCode = async () => {
-    if (!email) {
-      showMessage({
-        message: "Error",
-        description: "Debes ingresar un correo electrónico 📧",
-        type: "danger",
-        icon: "danger",
-      });
+    const e = email.trim().toLowerCase();
+
+    if (!e) {
+      toast.warn("Atención", "Debes ingresar un correo electrónico 📧");
+      return;
+    }
+    if (!EMAIL_RE.test(e)) {
+      toast.warn("Atención", "Ingresa un correo válido.");
       return;
     }
 
     try {
-      await axios.post("http://192.168.1.24:3000/send-code", { email });
+      setLoading(true);
+      await axios.post(`${API_URL}/send-code`, { email: e });
 
-      showMessage({
-        message: "Código enviado ✅",
-        description: "Revisa tu correo electrónico 📧",
-        type: "success",
-        icon: "success",
-      });
-
-      navigation.navigate("request-password", { email });
-    } catch (err) {
+      toast.success("Código enviado ✅", "Revisa tu correo electrónico 📧");
+      navigation.navigate("request-password", { email: e });
+    } catch (err: any) {
       let errorMsg = "No se pudo enviar el código ❌";
       if (axios.isAxiosError(err) && err.response?.data?.error) {
         errorMsg = err.response.data.error;
-      } else if (err instanceof Error) {
+      } else if (err?.message) {
         errorMsg = err.message;
       }
-
-      showMessage({
-        message: "Error",
-        description: errorMsg,
-        type: "danger",
-        icon: "danger",
-      });
+      toast.error("Error", errorMsg);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -88,16 +84,21 @@ export default function RequestCodeScreen() {
           onChangeText={setEmail}
         />
 
-        <TouchableOpacity style={styles.button} onPress={sendCode}>
-          <Text style={styles.buttonText}>Enviar código</Text>
+        <TouchableOpacity
+          style={[styles.button, loading && { opacity: 0.7 }]}
+          onPress={sendCode}
+          disabled={loading}
+        >
+          {loading ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <Text style={styles.buttonText}>Enviar código</Text>
+          )}
         </TouchableOpacity>
 
         <Text style={styles.footerText}>
           ¿Recordaste tu contraseña?{" "}
-          <Text
-            style={styles.link}
-            onPress={() => navigation.navigate("Login")}
-          >
+          <Text style={styles.link} onPress={() => navigation.navigate("Login")}>
             Inicia sesión
           </Text>
         </Text>

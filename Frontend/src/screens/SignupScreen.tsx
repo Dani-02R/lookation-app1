@@ -10,9 +10,11 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../../App';
 import { widthPercentageToDP as wp, heightPercentageToDP as hp } from 'react-native-responsive-screen';
 import auth from '@react-native-firebase/auth';
-import { showMessage } from 'react-native-flash-message';
+import { toast } from '../utils/alerts';
 
 type SignupScreenProp = NativeStackNavigationProp<RootStackParamList, 'Signup'>;
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function SignupScreen() {
   const navigation = useNavigation<SignupScreenProp>();
@@ -27,37 +29,33 @@ export default function SignupScreen() {
     const p2 = confirmPassword;
 
     if (!e || !p1 || !p2) {
-      showMessage({ type: 'warning', message: 'Completa todos los campos.' });
+      toast.warn('Atención', 'Completa todos los campos.');
       return;
     }
-    // Validaciones simples
-    const emailOk = /\S+@\S+\.\S+/.test(e);
-    if (!emailOk) {
-      showMessage({ type: 'warning', message: 'Ingresa un email válido.' });
+    if (!EMAIL_RE.test(e)) {
+      toast.warn('Atención', 'Ingresa un email válido.');
       return;
     }
     if (p1.length < 6) {
-      showMessage({ type: 'warning', message: 'La contraseña debe tener al menos 6 caracteres.' });
+      toast.warn('Atención', 'La contraseña debe tener al menos 6 caracteres.');
       return;
     }
     if (p1 !== p2) {
-      showMessage({ type: 'warning', message: 'Las contraseñas no coinciden.' });
+      toast.warn('Atención', 'Las contraseñas no coinciden.');
       return;
     }
 
     try {
       setLoading(true);
       await auth().createUserWithEmailAndPassword(e, p1);
-      // ❌ No navegues manualmente. App.tsx (onAuthStateChanged + upsert) decide:
-      // - Si isProfileComplete=false → CompleteProfile
-      // - Si true → Home
-      showMessage({ type: 'success', message: 'Cuenta creada. ¡Bienvenido!' });
+      // No navegues manual: App.tsx decide el flujo (CompleteProfile/Home)
+      toast.success('Cuenta creada. ¡Bienvenido!');
     } catch (err: any) {
       let msg = 'No se pudo crear la cuenta.';
       if (err?.code === 'auth/email-already-in-use') msg = 'Ese email ya está registrado.';
       else if (err?.code === 'auth/invalid-email') msg = 'Email inválido.';
       else if (err?.code === 'auth/weak-password') msg = 'Contraseña muy débil.';
-      showMessage({ type: 'danger', message: msg });
+      toast.error('Error', msg);
     } finally {
       setLoading(false);
     }

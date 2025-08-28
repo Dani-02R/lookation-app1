@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity,
   StyleSheet, ImageBackground, SafeAreaView,
-  StatusBar, Platform, Image, Alert, ActivityIndicator
+  StatusBar, Platform, Image, ActivityIndicator
 } from 'react-native';
 import AntDesign from 'react-native-vector-icons/AntDesign';
 import { useNavigation } from '@react-navigation/native';
@@ -12,9 +12,11 @@ import { RootStackParamList } from '../../App';
 import { widthPercentageToDP as wp, heightPercentageToDP as hp } from 'react-native-responsive-screen';
 import { signInWithGoogle } from '../auth/GoogleSignIn';
 import auth from '@react-native-firebase/auth';
-import { showMessage } from 'react-native-flash-message';
+import { toast } from '../utils/alerts';
 
 type LoginScreenProp = NativeStackNavigationProp<RootStackParamList, 'Login'>;
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function LoginScreen() {
   const navigation = useNavigation<LoginScreenProp>();
@@ -27,20 +29,26 @@ export default function LoginScreen() {
     const e = email.trim().toLowerCase();
     const p = password;
     if (!e || !p) {
-      showMessage({ type: 'warning', message: 'Completa email y contraseña.' });
+      toast.warn('Atención', 'Completa email y contraseña.');
       return;
     }
+    if (!EMAIL_RE.test(e)) {
+      toast.warn('Atención', 'Ingresa un correo válido.');
+      return;
+    }
+
     try {
       setLoadingEmail(true);
       await auth().signInWithEmailAndPassword(e, p);
-      // ❌ No navegues manual: App.tsx (onAuthStateChanged + useProfile) decide
+      // No navegues manualmente: App.tsx decide vía onAuthStateChanged/useProfile
+      toast.success('¡Bienvenido!', 'Autenticación exitosa.');
     } catch (err: any) {
       let msg = 'No se pudo iniciar sesión.';
       if (err?.code === 'auth/invalid-email') msg = 'Email inválido.';
       else if (err?.code === 'auth/user-not-found') msg = 'Usuario no encontrado.';
       else if (err?.code === 'auth/wrong-password') msg = 'Contraseña incorrecta.';
       else if (err?.code === 'auth/too-many-requests') msg = 'Demasiados intentos. Intenta más tarde.';
-      showMessage({ type: 'danger', message: msg });
+      toast.error('Error', msg);
     } finally {
       setLoadingEmail(false);
     }
@@ -55,14 +63,14 @@ export default function LoginScreen() {
       setLoadingGoogle(true);
       const userCredential = await signInWithGoogle();
       if (!userCredential) {
-        showMessage({ type: 'danger', message: 'El inicio de sesión con Google falló.' });
+        toast.error('Error', 'El inicio de sesión con Google falló.');
         return;
       }
-      // ✅ No navegues manualmente; App.tsx te llevará a Home o CompleteProfile
-      showMessage({ type: 'success', message: 'Autenticado con Google.' });
+      // App.tsx te llevará a Home o CompleteProfile
+      toast.success('Autenticado con Google.');
     } catch (error) {
       console.error('❌ Error en Google Sign-In:', error);
-      showMessage({ type: 'danger', message: 'No se pudo iniciar sesión con Google.' });
+      toast.error('Error', 'No se pudo iniciar sesión con Google.');
     } finally {
       setLoadingGoogle(false);
     }
@@ -133,7 +141,7 @@ export default function LoginScreen() {
           <View style={styles.socialContainer}>
             {/* Google */}
             <TouchableOpacity
-              style={[styles.socialBtn, loadingGoogle && { opacity: 0.6 }]}
+              style={[styles.socialBtn, (loadingGoogle || loadingEmail) && { opacity: 0.6 }]}
               onPress={handleGoogleLogin}
               disabled={loadingGoogle || loadingEmail}
             >

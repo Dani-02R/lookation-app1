@@ -49,6 +49,7 @@ npm install axios
 npm install react-native-flash-message
 npm install --save-dev @react-native/typescript-config
 npm install react-native-safe-area-context
+npm i @react-native-firebase/app@23.1.2 @react-native-firebase/auth@23.1.2 @react-native-firebase/firestore@23.1.2
 
 
 > Si usas iOS, ejecuta también:

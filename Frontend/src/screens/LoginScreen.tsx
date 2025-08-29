@@ -16,7 +16,8 @@ import { toast } from '../utils/alerts';
 
 type LoginScreenProp = NativeStackNavigationProp<RootStackParamList, 'Login'>;
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// Regex más robusto (insensible a mayúsculas)
+const EMAIL_RE = /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i;
 
 export default function LoginScreen() {
   const navigation = useNavigation<LoginScreenProp>();
@@ -26,8 +27,10 @@ export default function LoginScreen() {
   const [loadingGoogle, setLoadingGoogle] = useState(false);
 
   const handleLogin = async () => {
-    const e = email.trim().toLowerCase();
+    // Normaliza y limpia el email
+    const e = email.normalize('NFKC').trim().toLowerCase().replace(/\s/g, '');
     const p = password;
+
     if (!e || !p) {
       toast.warn('Atención', 'Completa email y contraseña.');
       return;
@@ -39,14 +42,31 @@ export default function LoginScreen() {
 
     try {
       setLoadingEmail(true);
+
       await auth().signInWithEmailAndPassword(e, p);
-      // No navegues manualmente: App.tsx decide vía onAuthStateChanged/useProfile
+
+      // Refresca estado antes de decidir
+      const u = auth().currentUser;
+      await u?.reload();
+
+      if (!u?.emailVerified) {
+        // Reenvía por si el usuario lo perdió
+        try { await u?.sendEmailVerification(); } catch {}
+        toast.warn(
+          'Verificación pendiente',
+          'Te enviamos el enlace de verificación. Revisa tu correo y luego inicia sesión.'
+        );
+        await auth().signOut();
+        return;
+      }
+
+      // Verificado: App.tsx cambiará solo a Home/CompleteProfile
       toast.success('¡Bienvenido!', 'Autenticación exitosa.');
     } catch (err: any) {
       let msg = 'No se pudo iniciar sesión.';
       if (err?.code === 'auth/invalid-email') msg = 'Email inválido.';
       else if (err?.code === 'auth/user-not-found') msg = 'Usuario no encontrado.';
-      else if (err?.code === 'auth/wrong-password') msg = 'Contraseña incorrecta.';
+      else if (err?.code === 'auth/wrong-password' || err?.code === 'auth/invalid-credential') msg = 'Contraseña incorrecta.';
       else if (err?.code === 'auth/too-many-requests') msg = 'Demasiados intentos. Intenta más tarde.';
       toast.error('Error', msg);
     } finally {
@@ -66,7 +86,7 @@ export default function LoginScreen() {
         toast.error('Error', 'El inicio de sesión con Google falló.');
         return;
       }
-      // App.tsx te llevará a Home o CompleteProfile
+      // Normalmente Google viene verificado; App.tsx hará el cambio de stack
       toast.success('Autenticado con Google.');
     } catch (error) {
       console.error('❌ Error en Google Sign-In:', error);
@@ -113,6 +133,8 @@ export default function LoginScreen() {
             placeholderTextColor="#aaa"
             keyboardType="email-address"
             autoCapitalize="none"
+            autoCorrect={false}
+            textContentType="emailAddress"
             value={email}
             onChangeText={setEmail}
           />

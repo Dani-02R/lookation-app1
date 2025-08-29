@@ -1,5 +1,5 @@
 // src/screens/Home.tsx
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import {
   View,
   Text,
@@ -18,7 +18,61 @@ import { RootStackParamList } from "../../App";
 import { useProfile } from "../hooks/useProfile";
 import { signOutGoogle } from "../auth/GoogleSignIn";
 
-const PRIMARY = "#0085FF";
+const PRIMARY = "#0082FA"; // Azul Lookation
+
+// --- Utils ---
+const getInitials = (nameLike?: string) => {
+  if (!nameLike) return "U";
+  const cleaned = nameLike.trim();
+  if (!cleaned) return "U";
+  const parts = cleaned.split(/\s+/);
+  if (parts.length >= 2) {
+    return (parts[0][0] + parts[1][0]).toUpperCase();
+  }
+  // Si solo hay una palabra, toma las 2 primeras letras
+  return cleaned.slice(0, 2).toUpperCase();
+};
+
+type AvatarProps = {
+  uri?: string | null;
+  labelForInitials: string; // displayName o gamertag (para fallback)
+  size?: number; // px
+};
+
+const UserAvatar: React.FC<AvatarProps> = ({ uri, labelForInitials, size = wp("14%") }) => {
+  const initials = useMemo(() => getInitials(labelForInitials), [labelForInitials]);
+
+  if (uri) {
+    return (
+      <Image
+        source={{ uri }}
+        style={{ width: size, height: size, borderRadius: size / 2 }}
+        resizeMode="cover"
+        accessible
+        accessibilityLabel="Foto de perfil"
+      />
+    );
+  }
+
+  return (
+    <View
+      style={{
+        width: size,
+        height: size,
+        borderRadius: size / 2,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: "#E6F0FF", // azul muy claro
+      }}
+      accessible
+      accessibilityLabel={`Avatar con iniciales ${initials}`}
+    >
+      <Text style={{ color: PRIMARY, fontWeight: "700", fontSize: size * 0.42 }}>
+        {initials}
+      </Text>
+    </View>
+  );
+};
 
 const Home = () => {
   const [isEnabled, setIsEnabled] = useState(true);
@@ -29,8 +83,9 @@ const Home = () => {
 
   const handleLogout = async () => {
     try {
+      // ❌ Nada de navigation.reset / replace / navigate aquí
       await signOutGoogle();
-      navigation.reset({ index: 0, routes: [{ name: "Login" }] });
+      // ✅ El AuthGate en App.tsx detecta user=null y cambia al AuthStack
     } catch (error) {
       console.error("Error al cerrar sesión:", error);
     }
@@ -39,13 +94,15 @@ const Home = () => {
   const toCompleteProfile = () => navigation.navigate("CompleteProfile" as never);
   const toEditProfile = () => navigation.navigate("EditProfile" as never);
 
-  const avatarSource =
-    profile?.photoURL ? { uri: profile.photoURL } : require("../assets/Img-Perfil.jpeg");
-
-  // Preferir gamertag; fallback a displayName
+  // Preferir gamertag como etiqueta; fallback a displayName
   const userLabel =
     (profile?.gamertag && profile.gamertag.trim().length > 0)
       ? `@${profile.gamertag}`
+      : (profile?.displayName ?? "");
+
+  const initialsSource =
+    (profile?.gamertag && profile.gamertag.trim().length > 0)
+      ? profile.gamertag
       : (profile?.displayName ?? "");
 
   return (
@@ -54,7 +111,8 @@ const Home = () => {
 
       {/* HEADER */}
       <View style={styles.header}>
-        <Image source={avatarSource} style={styles.avatar} />
+        <UserAvatar uri={profile?.photoURL} labelForInitials={initialsSource} />
+
         <View style={styles.titleContainer}>
           <Switch
             value={isEnabled}
@@ -137,11 +195,7 @@ const styles = StyleSheet.create({
     shadowRadius: 3,
     shadowOffset: { width: 0, height: 2 },
   },
-  avatar: {
-    width: wp("14%"),
-    height: wp("14%"),
-    borderRadius: wp("7%"),
-  },
+
   titleContainer: {
     marginLeft: wp("3%"),
     flexDirection: "row",

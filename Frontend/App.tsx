@@ -1,10 +1,10 @@
 // frontend/App.tsx
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, View, Platform } from 'react-native';
-import { NavigationContainer } from '@react-navigation/native';
+import { Platform, View, StatusBar } from 'react-native';
+import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import FlashMessage from 'react-native-flash-message';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 
 import auth, { FirebaseAuthTypes } from '@react-native-firebase/auth';
 
@@ -19,6 +19,9 @@ import Home from './src/screens/Home';
 import CompleteProfileScreen from './src/screens/CompleteProfileScreen';
 import EditProfileScreen from './src/screens/EditProfileScreen';
 
+// Loader (fondo azul Lookation)
+import AppLoader from './src/components/AppLoader';
+
 export type RootStackParamList = {
   Login: undefined;
   Signup: undefined;
@@ -30,6 +33,13 @@ export type RootStackParamList = {
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
+const BRAND_BLUE = '#0082FA';
+
+// Tema por defecto (fondo blanco) para la app normal
+const AppTheme = {
+  ...DefaultTheme,
+  colors: { ...DefaultTheme.colors, background: '#FFFFFF' },
+};
 
 export default function App() {
   const [booting, setBooting] = useState(true);
@@ -47,20 +57,40 @@ export default function App() {
 
   const { user, profile, loading } = useProfile();
 
-  if (booting || loading) {
+  // ✅ NUEVO: exigir que el correo esté verificado para considerar sesión válida
+  const isVerified = !!user?.emailVerified;
+
+  const gateIsLoading = booting || loading;
+  // ❗ CAMBIO: antes era !user; ahora también bloquea si no está verificado
+  const isUnauthed = !user || !isVerified;
+
+  const isProfileKnown = profile !== undefined && profile !== null;
+  const needsProfile = isProfileKnown && profile?.isProfileComplete === false;
+  const isFullyAuthed = isProfileKnown && profile?.isProfileComplete === true;
+
+  if (gateIsLoading) {
+    // ⚠️ NO confíes en style del SafeAreaProvider; envuélvelo en una View azul.
     return (
-      <SafeAreaProvider>
-        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-          <ActivityIndicator />
-        </View>
-      </SafeAreaProvider>
+      <View style={{ flex: 1, backgroundColor: BRAND_BLUE }}>
+        <SafeAreaProvider>
+          <SafeAreaView style={{ flex: 1, backgroundColor: BRAND_BLUE }}>
+            <StatusBar barStyle="light-content" backgroundColor={BRAND_BLUE} />
+            {/* AppLoader con overlay absoluto; pero igual el contenedor ya es azul */}
+            <AppLoader
+              title="Buscando tu ubicación…"
+              subtitle="Sincronizando perfil"
+              fullscreen
+            />
+          </SafeAreaView>
+        </SafeAreaProvider>
+      </View>
     );
   }
 
   return (
     <SafeAreaProvider>
-      <NavigationContainer>
-        {!user ? (
+      <NavigationContainer theme={AppTheme}>
+        {isUnauthed ? (
           <Stack.Navigator
             initialRouteName="Login"
             screenOptions={{ headerShown: false, animation: 'slide_from_right' }}
@@ -70,26 +100,34 @@ export default function App() {
             <Stack.Screen name="request-code" component={RequestCodeScreen} />
             <Stack.Screen name="request-password" component={RequestPasswordScreen} />
           </Stack.Navigator>
-        ) : profile && profile.isProfileComplete === false ? (
+        ) : needsProfile ? (
           <Stack.Navigator
             initialRouteName="CompleteProfile"
             screenOptions={{ headerShown: false, animation: 'slide_from_right' }}
           >
             <Stack.Screen name="CompleteProfile" component={CompleteProfileScreen} />
           </Stack.Navigator>
-        ) : (
+        ) : isFullyAuthed ? (
           <Stack.Navigator
             initialRouteName="Home"
             screenOptions={{ headerShown: false, animation: 'slide_from_right' }}
           >
             <Stack.Screen name="Home" component={Home} />
-            <Stack.Screen name="CompleteProfile" component={CompleteProfileScreen} />
             <Stack.Screen name="EditProfile" component={EditProfileScreen} />
           </Stack.Navigator>
+        ) : (
+          // Fallback muy raro: fuerza fondo azul también aquí
+          <SafeAreaView style={{ flex: 1, backgroundColor: BRAND_BLUE }}>
+            <StatusBar barStyle="light-content" backgroundColor={BRAND_BLUE} />
+            <AppLoader
+              title="Preparando tu cuenta…"
+              subtitle="Cargando datos de ubicación"
+              fullscreen
+            />
+          </SafeAreaView>
         )}
       </NavigationContainer>
 
-      {/* Contenedor global de alertas (visible en TODA la app) */}
       <FlashMessage
         position="top"
         floating
@@ -98,8 +136,8 @@ export default function App() {
           borderRadius: 12,
           marginTop: 12,
           marginHorizontal: 8,
-          elevation: 6, // Android
-          shadowColor: '#000', // iOS
+          elevation: 6,
+          shadowColor: '#000',
           shadowOpacity: 0.12,
           shadowOffset: { width: 0, height: 6 },
           shadowRadius: 8,

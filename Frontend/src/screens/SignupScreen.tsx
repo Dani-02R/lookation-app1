@@ -47,9 +47,21 @@ export default function SignupScreen() {
 
     try {
       setLoading(true);
+
+      // 1) Crear cuenta (Firebase autentica automáticamente)
       await auth().createUserWithEmailAndPassword(e, p1);
-      // No navegues manual: App.tsx decide el flujo (CompleteProfile/Home)
-      toast.success('Cuenta creada. ¡Bienvenido!');
+
+      // 2) Enviar email de verificación (enlace con expiración automática)
+      await auth().currentUser?.sendEmailVerification();
+
+      // 3) Cerrar sesión para que NO quede “adentro” sin verificar
+      await auth().signOut();
+
+      // Mensaje final para el usuario
+      toast.success('Te enviamos un correo de verificación. Revísalo y luego inicia sesión.');
+
+      // Opcional: llevar explícitamente al Login
+      // navigation.navigate('Login');
     } catch (err: any) {
       let msg = 'No se pudo crear la cuenta.';
       if (err?.code === 'auth/email-already-in-use') msg = 'Ese email ya está registrado.';

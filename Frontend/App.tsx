@@ -18,8 +18,8 @@ import RequestPasswordScreen from './src/screens/request-password';
 import Home from './src/screens/Home';
 import CompleteProfileScreen from './src/screens/CompleteProfileScreen';
 import EditProfileScreen from './src/screens/EditProfileScreen';
+import SettingsScreen from './src/screens/SettingsScreen';
 
-// Loader (fondo azul Lookation)
 import AppLoader from './src/components/AppLoader';
 
 export type RootStackParamList = {
@@ -30,12 +30,12 @@ export type RootStackParamList = {
   'request-code': { email: string };
   CompleteProfile: undefined;
   EditProfile: undefined;
+  Settings: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const BRAND_BLUE = '#0082FA';
 
-// Tema por defecto (fondo blanco) para la app normal
 const AppTheme = {
   ...DefaultTheme,
   colors: { ...DefaultTheme.colors, background: '#FFFFFF' },
@@ -57,11 +57,9 @@ export default function App() {
 
   const { user, profile, loading } = useProfile();
 
-  // ✅ NUEVO: exigir que el correo esté verificado para considerar sesión válida
   const isVerified = !!user?.emailVerified;
 
   const gateIsLoading = booting || loading;
-  // ❗ CAMBIO: antes era !user; ahora también bloquea si no está verificado
   const isUnauthed = !user || !isVerified;
 
   const isProfileKnown = profile !== undefined && profile !== null;
@@ -69,18 +67,12 @@ export default function App() {
   const isFullyAuthed = isProfileKnown && profile?.isProfileComplete === true;
 
   if (gateIsLoading) {
-    // ⚠️ NO confíes en style del SafeAreaProvider; envuélvelo en una View azul.
     return (
       <View style={{ flex: 1, backgroundColor: BRAND_BLUE }}>
         <SafeAreaProvider>
           <SafeAreaView style={{ flex: 1, backgroundColor: BRAND_BLUE }}>
             <StatusBar barStyle="light-content" backgroundColor={BRAND_BLUE} />
-            {/* AppLoader con overlay absoluto; pero igual el contenedor ya es azul */}
-            <AppLoader
-              title="Buscando tu ubicación…"
-              subtitle="Sincronizando perfil"
-              fullscreen
-            />
+            <AppLoader title="Buscando tu ubicación…" subtitle="Sincronizando perfil" fullscreen />
           </SafeAreaView>
         </SafeAreaProvider>
       </View>
@@ -114,16 +106,12 @@ export default function App() {
           >
             <Stack.Screen name="Home" component={Home} />
             <Stack.Screen name="EditProfile" component={EditProfileScreen} />
+            <Stack.Screen name="Settings" component={SettingsScreen} />
           </Stack.Navigator>
         ) : (
-          // Fallback muy raro: fuerza fondo azul también aquí
           <SafeAreaView style={{ flex: 1, backgroundColor: BRAND_BLUE }}>
             <StatusBar barStyle="light-content" backgroundColor={BRAND_BLUE} />
-            <AppLoader
-              title="Preparando tu cuenta…"
-              subtitle="Cargando datos de ubicación"
-              fullscreen
-            />
+            <AppLoader title="Preparando tu cuenta…" subtitle="Cargando datos de ubicación" fullscreen />
           </SafeAreaView>
         )}
       </NavigationContainer>

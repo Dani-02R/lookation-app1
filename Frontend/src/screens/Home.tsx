@@ -26,10 +26,7 @@ const getInitials = (nameLike?: string) => {
   const cleaned = nameLike.trim();
   if (!cleaned) return "U";
   const parts = cleaned.split(/\s+/);
-  if (parts.length >= 2) {
-    return (parts[0][0] + parts[1][0]).toUpperCase();
-  }
-  // Si solo hay una palabra, toma las 2 primeras letras
+  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
   return cleaned.slice(0, 2).toUpperCase();
 };
 
@@ -83,9 +80,8 @@ const Home = () => {
 
   const handleLogout = async () => {
     try {
-      // ❌ Nada de navigation.reset / replace / navigate aquí
+      // ❌ No navegar manualmente; App.tsx hará el switch
       await signOutGoogle();
-      // ✅ El AuthGate en App.tsx detecta user=null y cambia al AuthStack
     } catch (error) {
       console.error("Error al cerrar sesión:", error);
     }
@@ -93,6 +89,7 @@ const Home = () => {
 
   const toCompleteProfile = () => navigation.navigate("CompleteProfile" as never);
   const toEditProfile = () => navigation.navigate("EditProfile" as never);
+  const toSettings = () => navigation.navigate("Settings" as never); // 👈 NUEVO
 
   // Preferir gamertag como etiqueta; fallback a displayName
   const userLabel =
@@ -122,16 +119,20 @@ const Home = () => {
           />
           <View style={{ marginLeft: wp("2.5%") }}>
             <Text style={styles.title}>Onlookation</Text>
-            {!!userLabel && (
-              <Text style={styles.subtitle}>{userLabel}</Text>
-            )}
+            {!!userLabel && <Text style={styles.subtitle}>{userLabel}</Text>}
           </View>
         </View>
 
-        {/* Botón Editar perfil */}
-        <TouchableOpacity style={styles.editBtn} onPress={toEditProfile}>
-          <Text style={styles.editBtnText}>Editar</Text>
-        </TouchableOpacity>
+        {/* Acciones derecha: Editar + Ajustes */}
+        <View style={styles.rightActions}>
+          <TouchableOpacity style={styles.editBtn} onPress={toEditProfile} accessibilityLabel="Editar perfil">
+            <Text style={styles.editBtnText}>Editar</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.settingsBtn} onPress={toSettings} accessibilityLabel="Ajustes">
+            <Text style={styles.settingsIcon}>⚙️</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* BANNER: Completa tu cuenta */}
@@ -202,6 +203,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flex: 1,
   },
+
+  rightActions: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
   title: { fontSize: wp("4.5%"), fontWeight: "bold", color: PRIMARY },
   subtitle: { fontSize: wp("3%"), color: "#666", marginTop: hp("0.2%") },
 
@@ -210,8 +217,22 @@ const styles = StyleSheet.create({
     paddingHorizontal: wp("3.5%"),
     paddingVertical: hp("1%"),
     borderRadius: 10,
+    marginRight: wp("2%"),
   },
   editBtnText: { color: "#fff", fontWeight: "700", fontSize: wp("3.6%") },
+
+  settingsBtn: {
+    width: wp("10%"),
+    height: wp("10%"),
+    borderRadius: wp("5%"),
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#E6F0FF",
+  },
+  settingsIcon: {
+    fontSize: wp("5.2%"),
+    color: PRIMARY,
+  },
 
   // Banner
   banner: {

@@ -11,6 +11,7 @@ import auth, { FirebaseAuthTypes } from '@react-native-firebase/auth';
 import { upsertUserProfileMinimal } from './src/services/userProfile';
 import { useProfile } from './src/hooks/useProfile';
 
+// Auth / Perfil / Home
 import LoginScreen from './src/screens/LoginScreen';
 import SignupScreen from './src/screens/SignupScreen';
 import RequestCodeScreen from './src/screens/request-code';
@@ -20,17 +21,39 @@ import CompleteProfileScreen from './src/screens/CompleteProfileScreen';
 import EditProfileScreen from './src/screens/EditProfileScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
 
+// Amigos
+import FriendsScreen from './src/screens/FriendsScreen';
+
+// Chats
+import ChatsScreen from './src/screens/ChatsScreen';
+import ChatRoomScreen from './src/screens/ChatRoomScreen';
+
 import AppLoader from './src/components/AppLoader';
 
+// 🔸 Contexto de autenticación para usar useAuth()
+import { AuthProvider } from './src/auth/AuthProvider';
+
 export type RootStackParamList = {
+  // auth
   Login: undefined;
   Signup: undefined;
-  Home: undefined;
   'request-password': { email: string };
   'request-code': { email: string };
+
+  // flujo de perfil
   CompleteProfile: undefined;
   EditProfile: undefined;
+
+  // app
+  Home: undefined;
   Settings: undefined;
+
+  // amigos
+  Friends: undefined;
+
+  // chats
+  Chats: undefined;
+  ChatRoom: { conversationId: string; otherId?: string };
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -58,7 +81,6 @@ export default function App() {
   const { user, profile, loading } = useProfile();
 
   const isVerified = !!user?.emailVerified;
-
   const gateIsLoading = booting || loading;
   const isUnauthed = !user || !isVerified;
 
@@ -81,40 +103,54 @@ export default function App() {
 
   return (
     <SafeAreaProvider>
-      <NavigationContainer theme={AppTheme}>
-        {isUnauthed ? (
-          <Stack.Navigator
-            initialRouteName="Login"
-            screenOptions={{ headerShown: false, animation: 'slide_from_right' }}
-          >
-            <Stack.Screen name="Login" component={LoginScreen} />
-            <Stack.Screen name="Signup" component={SignupScreen} />
-            <Stack.Screen name="request-code" component={RequestCodeScreen} />
-            <Stack.Screen name="request-password" component={RequestPasswordScreen} />
-          </Stack.Navigator>
-        ) : needsProfile ? (
-          <Stack.Navigator
-            initialRouteName="CompleteProfile"
-            screenOptions={{ headerShown: false, animation: 'slide_from_right' }}
-          >
-            <Stack.Screen name="CompleteProfile" component={CompleteProfileScreen} />
-          </Stack.Navigator>
-        ) : isFullyAuthed ? (
-          <Stack.Navigator
-            initialRouteName="Home"
-            screenOptions={{ headerShown: false, animation: 'slide_from_right' }}
-          >
-            <Stack.Screen name="Home" component={Home} />
-            <Stack.Screen name="EditProfile" component={EditProfileScreen} />
-            <Stack.Screen name="Settings" component={SettingsScreen} />
-          </Stack.Navigator>
-        ) : (
-          <SafeAreaView style={{ flex: 1, backgroundColor: BRAND_BLUE }}>
-            <StatusBar barStyle="light-content" backgroundColor={BRAND_BLUE} />
-            <AppLoader title="Preparando tu cuenta…" subtitle="Cargando datos de ubicación" fullscreen />
-          </SafeAreaView>
-        )}
-      </NavigationContainer>
+      {/* 🔸 Proveedor de Auth para que useAuth() funcione en todas las pantallas */}
+      <AuthProvider>
+        <NavigationContainer theme={AppTheme}>
+          {isUnauthed ? (
+            // ==== Stack de no autenticados ====
+            <Stack.Navigator
+              initialRouteName="Login"
+              screenOptions={{ headerShown: false, animation: 'slide_from_right' }}
+            >
+              <Stack.Screen name="Login" component={LoginScreen} />
+              <Stack.Screen name="Signup" component={SignupScreen} />
+              <Stack.Screen name="request-code" component={RequestCodeScreen} />
+              <Stack.Screen name="request-password" component={RequestPasswordScreen} />
+            </Stack.Navigator>
+          ) : needsProfile ? (
+            // ==== Completar perfil ====
+            <Stack.Navigator
+              initialRouteName="CompleteProfile"
+              screenOptions={{ headerShown: false, animation: 'slide_from_right' }}
+            >
+              <Stack.Screen name="CompleteProfile" component={CompleteProfileScreen} />
+            </Stack.Navigator>
+          ) : isFullyAuthed ? (
+            // ==== App autenticada ====
+            <Stack.Navigator
+              initialRouteName="Home"
+              screenOptions={{ headerShown: false, animation: 'slide_from_right' }}
+            >
+              <Stack.Screen name="Home" component={Home} />
+              <Stack.Screen name="EditProfile" component={EditProfileScreen} />
+              <Stack.Screen name="Settings" component={SettingsScreen} />
+
+              {/* Amigos */}
+              <Stack.Screen name="Friends" component={FriendsScreen} />
+
+              {/* Chats */}
+              <Stack.Screen name="Chats" component={ChatsScreen} />
+              <Stack.Screen name="ChatRoom" component={ChatRoomScreen} />
+            </Stack.Navigator>
+          ) : (
+            // ==== Fallback de carga breve ====
+            <SafeAreaView style={{ flex: 1, backgroundColor: BRAND_BLUE }}>
+              <StatusBar barStyle="light-content" backgroundColor={BRAND_BLUE} />
+              <AppLoader title="Preparando tu cuenta…" subtitle="Cargando datos de ubicación" fullscreen />
+            </SafeAreaView>
+          )}
+        </NavigationContainer>
+      </AuthProvider>
 
       <FlashMessage
         position="top"

@@ -16,8 +16,8 @@ import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useFriends } from '../hooks/useFriends';
 import { sendFriendRequest, respondFriendRequest } from '../services/friends';
 import { searchUsernames } from '../services/usernames';
-import { ChatConfig } from '../services/chat/config';
 import { fetchOrCreateOneToOne } from '../services/chat';
+import { getPublicProfileByUid } from '../services/userProfile';
 
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -122,21 +122,25 @@ export default function FriendsScreen() {
     }
   };
 
-  // ==== fila de usuario (muestra nombre + @) ====
+  // ==== fila de usuario (lee SIEMPRE desde /publicProfiles) ====
   const FriendRow = ({ otherUid, right }: { otherUid: string; right?: React.ReactNode }) => {
-    const [other, setOther] = React.useState<Awaited<ReturnType<typeof ChatConfig.getUserByUid>> | null>(null);
+    const [other, setOther] = React.useState<{ displayName?: string; photoURL?: string | null; gamertag?: string | null } | null>(null);
 
     React.useEffect(() => {
       let alive = true;
       (async () => {
-        const u = await ChatConfig.getUserByUid(otherUid);
-        if (alive) setOther(u);
+        try {
+          const p = await getPublicProfileByUid(otherUid);
+          if (alive) setOther(p ?? null);
+        } catch {
+          if (alive) setOther(null);
+        }
       })();
       return () => { alive = false; };
     }, [otherUid]);
 
-    const title = other?.displayName ?? 'Usuario';
-    const handle = other?.username ?? null;
+    const title = other?.displayName || (other?.gamertag ? `@${other.gamertag}` : 'Usuario');
+    const handle = other?.gamertag ? `@${other.gamertag}` : null;
 
     return (
       <View

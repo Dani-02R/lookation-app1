@@ -1,6 +1,14 @@
 // src/services/userProfile.ts
 import auth from '@react-native-firebase/auth';
 import firestore, { FirebaseFirestoreTypes } from '@react-native-firebase/firestore';
+import { normalizeGamertag } from './usernames';
+
+/** Compat: algunas versiones exponen snap.exists como boolean y otras como método */
+function snapshotExists(snap: any): boolean {
+  if (!snap) return false;
+  if (typeof snap.exists === 'function') return !!snap.exists();
+  return !!snap.exists;
+}
 
 /** Helpers de colecciones */
 export const usersCol = () => firestore().collection('users');
@@ -23,7 +31,7 @@ export type UserProfileDoc = {
   provider: string;
   phone: string;
   bio: string;
-  gamertag: string;
+  gamertag: string; // puede estar vacío si aún no se completó
   roles: string[];
   isProfileComplete: boolean;
   createdAt?: FirebaseFirestoreTypes.Timestamp | null;
@@ -34,9 +42,35 @@ export type UserProfileDoc = {
 export type PublicProfileDoc = {
   displayName?: string;
   photoURL?: string | null;
+  /** gamertag normalizado (sin @) para UI pública */
+  tag?: string | null;
+  /** campo legacy para compatibilidad si alguna vista aún lo usa */
   gamertag?: string | null;
   updatedAt?: FirebaseFirestoreTypes.Timestamp | null;
 };
+
+/** Sincroniza /publicProfiles/{uid} desde /users/{uid} (fuente de verdad) */
+export async function syncPublicProfileFromUser(uid: string) {
+  if (!uid) return;
+
+  const snap = await usersCol().doc(uid).get();
+  const data = snapshotExists(snap) ? ((snap.data() as Partial<UserProfileDoc>) || {}) : {};
+
+  const displayName = (data.displayName ?? '').toString();
+  const photoURL = (data.photoURL ?? null) as string | null;
+  const tag = data.gamertag ? normalizeGamertag(data.gamertag) : null;
+
+  await publicProfilesCol().doc(uid).set(
+    {
+      displayName,
+      photoURL,
+      tag,            // recomendado para UI nueva
+      gamertag: tag,  // compat con vistas antiguas
+      updatedAt: firestore.FieldValue.serverTimestamp(),
+    },
+    { merge: true }
+  );
+}
 
 /**
  * Crea/actualiza el documento mínimo del usuario en /users/{uid}
@@ -47,7 +81,6 @@ export async function upsertUserProfileMinimal(): Promise<void> {
   if (!user) return;
 
   const ref = usersCol().doc(user.uid);
-  const pubRef = publicProfilesCol().doc(user.uid);
   const snap = await ref.get();
 
   const provider = resolveProviderId(user.providerData);
@@ -55,9 +88,7 @@ export async function upsertUserProfileMinimal(): Promise<void> {
   const displayName = user.displayName ?? '';
   const photoURL = user.photoURL ?? null;
 
-  let currentGamertag = '';
-
-  if (!snap.exists) {
+  if (!snapshotExists(snap)) {
     // Crear doc mínimo
     await ref.set({
       uid: user.uid,
@@ -67,7 +98,7 @@ export async function upsertUserProfileMinimal(): Promise<void> {
       provider,
       phone: '',
       bio: '',
-      gamertag: '',
+      gamertag: '', // aún sin reclamar
       roles: ['user'],
       isProfileComplete: false,
       createdAt: firestore.FieldValue.serverTimestamp(),
@@ -75,8 +106,6 @@ export async function upsertUserProfileMinimal(): Promise<void> {
     });
   } else {
     const current = (snap.data() || {}) as Partial<UserProfileDoc>;
-    currentGamertag = current.gamertag ?? '';
-
     const backfill: Partial<UserProfileDoc> = {};
     if (current.phone === undefined) backfill.phone = '';
     if (current.bio === undefined) backfill.bio = '';
@@ -97,16 +126,8 @@ export async function upsertUserProfileMinimal(): Promise<void> {
     );
   }
 
-  // Actualizar /publicProfiles/{uid} para búsquedas y solicitudes
-  await pubRef.set(
-    {
-      displayName,
-      photoURL,
-      gamertag: currentGamertag,
-      updatedAt: firestore.FieldValue.serverTimestamp(),
-    },
-    { merge: true }
-  );
+  // 🔄 Asegurar perfil público actualizado (displayName, photoURL, tag/gamertag)
+  await syncPublicProfileFromUser(user.uid);
 }
 
 /**
@@ -122,20 +143,10 @@ export async function updateUserProfile(partial: {
   const user = auth().currentUser;
   if (!user) throw new Error('No hay usuario autenticado');
 
-  // Guardar en Firestore
+  // Guardar en Firestore (/users)
   await usersCol().doc(user.uid).set(
     {
       ...partial,
-      updatedAt: firestore.FieldValue.serverTimestamp(),
-    },
-    { merge: true }
-  );
-
-  // Actualizar /publicProfiles también
-  await publicProfilesCol().doc(user.uid).set(
-    {
-      displayName: partial.displayName,
-      photoURL: partial.photoURL,
       updatedAt: firestore.FieldValue.serverTimestamp(),
     },
     { merge: true }
@@ -148,12 +159,15 @@ export async function updateUserProfile(partial: {
       photoURL: (partial.photoURL ?? user.photoURL ?? null) as string | null,
     });
   }
+
+  // 🔄 Reflejar en /publicProfiles desde la fuente (/users)
+  await syncPublicProfileFromUser(user.uid);
 }
 
 /** Lee el perfil privado completo */
 export async function getUserProfileByUid(uid: string): Promise<UserProfileDoc | null> {
   const snap = await usersCol().doc(uid).get();
-  if (!snap.exists) return null;
+  if (!snapshotExists(snap)) return null;
   return { uid, ...(snap.data() as any) } as UserProfileDoc;
 }
 
@@ -164,9 +178,9 @@ export async function getCurrentUserProfile(): Promise<UserProfileDoc | null> {
   return getUserProfileByUid(u.uid);
 }
 
-/** Lee perfil público (para mostrar en Friends, chats, búsquedas) */
+/** Lee perfil público (para Friends, Chats, búsquedas/autocomplete) */
 export async function getPublicProfileByUid(uid: string): Promise<PublicProfileDoc | null> {
   const snap = await publicProfilesCol().doc(uid).get();
-  if (!snap.exists) return null;
+  if (!snapshotExists(snap)) return null;
   return snap.data() as PublicProfileDoc;
 }

@@ -13,7 +13,7 @@ import {
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { toast } from "../utils/alerts";
 
-const API_URL = "http://192.168.0.13:3000"; // Cambia si usas otra IP
+const API_URL = "http://10.254.50.48:3000"; // Cambia si usas otra IP
 
 // Imagen nueva (la chica con la llave)
 const recoveryPasswordImage = require("../assets/recovery-password.png");

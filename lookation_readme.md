@@ -116,7 +116,6 @@ de android y el sdk
 
 
 
-
 Certificados y huellas Sha para login con google
 Antes de esto deberas instalar el debug.keystore que les envie a whatsapp
 Debes ir a tu explorador de archivos y poner C:\Users\tu-usuario\.android

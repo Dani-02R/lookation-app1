@@ -23,7 +23,7 @@ type RequestCodeScreenNavigationProp = NativeStackNavigationProp<
 
 // Imagen exportada (el chico con el celular blanco sobre azul)
 const recoveryImage = require("../assets/recovery-img.png");
-const API_URL = "http://192.168.0.13:3000";
+const API_URL = "http://10.254.50.48:3000";
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function RequestCodeScreen() {

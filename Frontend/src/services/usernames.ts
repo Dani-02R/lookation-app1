@@ -2,11 +2,12 @@
 import firestore, { FirebaseFirestoreTypes } from '@react-native-firebase/firestore';
 import auth, { FirebaseAuthTypes } from '@react-native-firebase/auth';
 
-/** Normaliza el gamertag para unicidad */
+/** Normaliza el gamertag para unicidad (sin @) */
 export function normalizeGamertag(raw: string) {
   let g = (raw || '').trim().toLowerCase();
-  g = g.replace(/\s+/g, '_');           // espacios -> _
-  g = g.replace(/[^a-z0-9._-]/g, '');   // solo a-z 0-9 . _ -
+  g = g.replace(/^@+/, '');            // quita @ inicial si la hay
+  g = g.replace(/\s+/g, '_');          // espacios -> _
+  g = g.replace(/[^a-z0-9._-]/g, '');  // solo a-z 0-9 . _ -
   if (g.length > 20) g = g.slice(0, 20);
   return g;
 }
@@ -19,6 +20,7 @@ function snapshotExists(snap: any): boolean {
 /** FieldValue tipado */
 const serverTs = firestore.FieldValue.serverTimestamp() as FirebaseFirestoreTypes.FieldValue;
 
+/** Colecciones */
 const colUsernames = () => firestore().collection('usernames');
 const colUsers = () => firestore().collection('users');
 const colPublic = () => firestore().collection('publicProfiles');
@@ -32,7 +34,11 @@ export type CompleteProfilePayload = {
 
 /**
  * Reclama un gamertag único y completa el perfil del usuario.
- * Sincroniza también /publicProfiles/{uid}.
+ * Sincroniza también /publicProfiles/{uid} con:
+ *  - displayName
+ *  - photoURL
+ *  - tag (gamertag normalizado, sin @)
+ *  - gamertag (campo legacy para compat)
  */
 export async function claimGamertagAndCompleteProfile(
   { displayName, gamertag, phone, bio }: CompleteProfilePayload
@@ -70,6 +76,7 @@ export async function claimGamertagAndCompleteProfile(
     if (typeof phone === 'string') extra.phone = phone;
     if (typeof bio === 'string') extra.bio = bio;
 
+    // /users
     tx.set(
       userRef,
       {
@@ -82,19 +89,21 @@ export async function claimGamertagAndCompleteProfile(
       { merge: true }
     );
 
-    // ✅ sincronizar public profile
+    // /publicProfiles
     tx.set(
       publicRef,
       {
         displayName: name,
         photoURL: user.photoURL ?? null,
-        gamertag: normalized,
+        tag: normalized,       // recomendado para UI
+        gamertag: normalized,  // compat con vistas antiguas
         updatedAt: serverTs,
       },
       { merge: true }
     );
   });
 
+  // Mantener displayName en Auth (best-effort)
   try {
     if (user.displayName !== name) {
       await user.updateProfile({ displayName: name });
@@ -128,17 +137,32 @@ export async function usernameToUid(raw: string): Promise<string | null> {
   return ((doc.data() as { uid?: string } | undefined)?.uid) ?? null;
 }
 
-/** uid -> username */
+/**
+ * uid -> username (gamertag normalizado).
+ * Prioriza /publicProfiles.tag (siempre legible) y si no existe, cae a /users.gamertag.
+ */
 export async function uidToUsername(uid: string): Promise<string | null> {
   if (!uid) return null;
+
+  // 1) Intentar perfil público
+  const pub = await colPublic().doc(uid).get();
+  if (snapshotExists(pub)) {
+    const tag = (pub.data() as any)?.tag ?? (pub.data() as any)?.gamertag ?? null;
+    if (tag) return normalizeGamertag(tag as string);
+  }
+
+  // 2) Fallback a perfil privado (puede fallar por reglas si no es amigo)
   const snap = await colUsers().doc(uid).get();
-  if (!snapshotExists(snap)) return null;
-  const data = snap.data() as { gamertag?: string } | undefined;
-  return data?.gamertag ?? null;
+  if (snapshotExists(snap)) {
+    const data = snap.data() as { gamertag?: string } | undefined;
+    if (data?.gamertag) return normalizeGamertag(data.gamertag);
+  }
+
+  return null;
 }
 
 /**
- * Cambiar gamertag preservando unicidad y sincronizando /publicProfiles
+ * Cambiar gamertag preservando unicidad y sincronizando /publicProfiles.
  */
 export async function updateGamertag(newTagRaw: string): Promise<string> {
   const user = auth().currentUser;
@@ -154,26 +178,33 @@ export async function updateGamertag(newTagRaw: string): Promise<string> {
   const publicRef = colPublic().doc(uid);
 
   await db.runTransaction(async (tx) => {
+    // Leer perfil para conocer el gamertag actual
     const userSnap = await tx.get(userRef);
     if (!snapshotExists(userSnap)) throw new Error('Perfil no encontrado');
     const current = (userSnap.data() || {}) as { gamertag?: string };
     const oldTag = current.gamertag ? normalizeGamertag(current.gamertag) : null;
 
+    // Verificar disponibilidad del nuevo
     const newSnap = await tx.get(newRef);
     const newOwner = (newSnap.data() as { uid?: string } | undefined)?.uid;
     if (snapshotExists(newSnap) && newOwner && newOwner !== uid) {
       throw new Error('Ese gamertag ya está en uso');
     }
 
+    // Reservar nuevo si no existe
     if (!snapshotExists(newSnap)) {
       tx.set(newRef, { uid, createdAt: serverTs });
     } else if (newOwner !== uid) {
       throw new Error('Ese gamertag ya está en uso');
     }
 
+    // Actualizar user doc
     tx.set(userRef, { gamertag: newTag, updatedAt: serverTs }, { merge: true });
-    tx.set(publicRef, { gamertag: newTag, updatedAt: serverTs }, { merge: true });
 
+    // Actualizar perfil público
+    tx.set(publicRef, { tag: newTag, gamertag: newTag, updatedAt: serverTs }, { merge: true });
+
+    // Eliminar antiguo mapping si existía y es distinto
     if (oldTag && oldTag !== newTag) {
       tx.delete(colUsernames().doc(oldTag));
     }
@@ -183,9 +214,13 @@ export async function updateGamertag(newTagRaw: string): Promise<string> {
 }
 
 /* =========================
- * Helpers para "Agregar amigos"
+ * Helpers para "Agregar amigos" y búsquedas
  * ========================= */
 
+/**
+ * Autocompletar usernames por prefijo (usa documentId()).
+ * Devuelve pares {tag, uid} para que luego consultes el perfil público por uid.
+ */
 export async function searchUsernames(prefixRaw: string, limit = 10): Promise<Array<{ tag: string; uid: string }>> {
   const prefix = normalizeGamertag(prefixRaw);
   if (!prefix) return [];
@@ -202,11 +237,13 @@ export async function searchUsernames(prefixRaw: string, limit = 10): Promise<Ar
 }
 
 /**
- * Obtener perfil público por gamertag desde /publicProfiles
+ * Obtener perfil público por gamertag desde /publicProfiles (si existe).
+ * Si no hubiera doc público aún, retorna al menos el uid resuelto.
  */
 export async function getPublicProfileByGamertag(raw: string): Promise<{
   uid: string;
-  gamertag: string | null;
+  tag: string | null;        // normalizado (sin @)
+  gamertag?: string | null;  // compat
   displayName?: string;
   photoURL?: string | null;
 } | null> {
@@ -214,12 +251,23 @@ export async function getPublicProfileByGamertag(raw: string): Promise<{
   if (!uid) return null;
 
   const snap = await colPublic().doc(uid).get();
-  if (!snapshotExists(snap)) return { uid, gamertag: normalizeGamertag(raw) };
+  if (!snapshotExists(snap)) {
+    // no hay perfil público aún, devolvemos lo básico
+    return {
+      uid,
+      tag: normalizeGamertag(raw),
+      gamertag: normalizeGamertag(raw),
+      displayName: undefined,
+      photoURL: null,
+    };
+  }
 
   const data = snap.data() as any;
+  const tag = data?.tag ?? data?.gamertag ?? null;
   return {
     uid,
-    gamertag: data?.gamertag ?? normalizeGamertag(raw),
+    tag: tag ? normalizeGamertag(tag) : null,
+    gamertag: tag ? normalizeGamertag(tag) : null,
     displayName: data?.displayName ?? undefined,
     photoURL: data?.photoURL ?? null,
   };

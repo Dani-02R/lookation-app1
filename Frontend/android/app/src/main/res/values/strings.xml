@@ -1,3 +1,7 @@
+
 <resources>
     <string name="app_name">LookationApp1</string>
+    <string name="facebook_app_id">4110241089229619</string>
+    <string name="facebook_client_token">8e0f9974f21a751b6fa22de27a53553f</string>
+   <string name="fb_login_protocol_scheme">fb4110241089229619</string>
 </resources>

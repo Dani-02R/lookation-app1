@@ -13,6 +13,7 @@ import { widthPercentageToDP as wp, heightPercentageToDP as hp } from 'react-nat
 import { signInWithGoogle } from '../auth/GoogleSignIn';
 import auth from '@react-native-firebase/auth';
 import { toast } from '../utils/alerts';
+import { loginWithFacebook } from '../auth/FacebookSignIn';
 
 type LoginScreenProp = NativeStackNavigationProp<RootStackParamList, 'Login'>;
 
@@ -96,6 +97,20 @@ export default function LoginScreen() {
     }
   };
 
+  const handleFacebookLogin = async () => {
+  try {
+    const userCredential = await loginWithFacebook();
+    if (!userCredential) {
+      toast.error('Error', 'El inicio de sesión con Facebook falló.');
+      return;
+    }
+    toast.success('Autenticado con Facebook.');
+  } catch (error) {
+    console.error(' Error en Facebook Sign-In:', error);
+    toast.error('Error', 'No se pudo iniciar sesión con Facebook.');
+  }
+};
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="light-content" backgroundColor="#0082FA" />
@@ -176,10 +191,15 @@ export default function LoginScreen() {
                 />
               )}
             </TouchableOpacity>
-            {/* Facebook (placeholder) */}
-            <TouchableOpacity style={styles.socialBtn} disabled>
+           {/* Facebook (placeholder) */}
+            <TouchableOpacity
+                 style={styles.socialBtn}
+                 onPress={handleFacebookLogin}
+                  disabled={loadingGoogle || loadingEmail}
+              >
               <AntDesign name="facebook-square" size={wp('7%')} color="#1877F2" />
             </TouchableOpacity>
+            
           </View>
 
           {/* Botón login */}

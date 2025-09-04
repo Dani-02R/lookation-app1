@@ -13,6 +13,7 @@ import {
   Platform,
   StyleSheet,
   useWindowDimensions,
+  DeviceEventEmitter,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import auth from '@react-native-firebase/auth';
@@ -28,6 +29,7 @@ import { fetchOrCreateOneToOne } from '../services/chat';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../App';
+import { useAfterInteractions } from '../hooks/useAfterInteractions';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
 
@@ -35,9 +37,9 @@ type UiRow = {
   id: string;                 // conversationId o 'temp:<uid>'
   otherId: string;            // uid del amigo
   lastMessage?: string | null;
-  isNew?: boolean;            // true si aún no existe la conversación
-  updatedAt?: number | null;  // ms
-  lastMessageAt?: number | null; // ms (si viene separado)
+  isNew?: boolean;
+  updatedAt?: number | null;      // ms
+  lastMessageAt?: number | null;  // ms
 };
 
 const COLORS = {
@@ -54,7 +56,6 @@ const COLORS = {
   newText: '#075985',
 };
 
-// ===== Responsividad sencilla =====
 function useScale() {
   const { width } = useWindowDimensions();
   const s = Math.min(Math.max(width / 390, 0.85), 1.2);
@@ -62,17 +63,24 @@ function useScale() {
 }
 
 const K_FAVORITES = 'chat:favorites:v1';
-const K_LAST_READ = 'chat:lastRead:v1'; // { [conversationId]: number }
+const K_LAST_READ = 'chat:lastRead:v1';
 
-// Cache de perfiles persistente (para primera pintura instantánea)
+// Cache de perfiles
 const K_PROFILE_CACHE = 'chat:profileCache:v1';
-const PROFILE_TTL_MS = 1000 * 60 * 60 * 24 * 7; // 7 días
+const PROFILE_TTL_MS = 1000 * 60 * 60 * 24 * 7;
 type ProfileCache = {
   data: Record<string, UIUser | null>;
-  updatedAt: Record<string, number>; // por uid
+  updatedAt: Record<string, number>;
 };
 
-// ===== Formato hora/fecha tipo WhatsApp =====
+// Cache de “heads” (último mensaje/hora)
+const K_MSG_HEADS = 'chat:headsCache:v1';
+type Head = { text: string | null; at: number | null };
+type HeadsCache = { data: Record<string, Head>, updatedAt: number };
+
+// globalThis seguro
+const G = globalThis as any;
+
 function formatWhen(ms?: number | null) {
   if (!ms) return '';
   const d = new Date(ms);
@@ -109,11 +117,7 @@ function formatWhen(ms?: number | null) {
   }
 }
 
-/**
- * Hook: contador en vivo de no leídos en una conversación.
- * Cuenta mensajes con createdAt > lastRead y authorId != myUid.
- * Cambia 'createdAt' o 'authorId' si tu esquema usa otros nombres.
- */
+/** 🔧 No leídos live (soporta authorId y senderId) */
 function useUnreadCountLive(convId: string | null, lastReadMs: number, myUid: string | null) {
   const [count, setCount] = React.useState(0);
 
@@ -123,19 +127,24 @@ function useUnreadCountLive(convId: string | null, lastReadMs: number, myUid: st
       return;
     }
 
-    const base = firestore()
+    // Filtramos por createdAt en servidor y contamos en cliente según authorId/senderId
+    const q = firestore()
       .collection('conversations')
       .doc(convId)
-      .collection('messages');
-
-    // Ajusta aquí si tus campos se llaman distinto (p.e. sentAt/senderId)
-    const q = base
-      .where('createdAt', '>', new Date(lastReadMs || 0))
-      .where('authorId', '!=', myUid);
+      .collection('messages')
+      .where('createdAt', '>', new Date(lastReadMs || 0));
 
     const unsub = q.onSnapshot(
-      (snap) => setCount(snap.size),
-      () => setCount(0) // silencioso si falta índice o nombres distintos
+      (snap) => {
+        let c = 0;
+        snap.forEach(doc => {
+          const d: any = doc.data();
+          const from = d?.authorId ?? d?.senderId ?? null;
+          if (from && from !== myUid) c++;
+        });
+        setCount(c);
+      },
+      () => setCount(0)
     );
     return unsub;
   }, [convId, lastReadMs, myUid]);
@@ -149,38 +158,84 @@ export default function ChatsScreen() {
   const uid = user?.uid ?? auth().currentUser?.uid ?? null;
   const scale = useScale();
 
-  // Conversaciones existentes
+  // Conversaciones
   const { items, loading } = useChats(uid);
-
-  // UIDs de amigos aceptados
+  // Amigos aceptados
   const { uids: friendUids, loading: friendsLoading } = useFriendUids(uid);
   const friendSet = React.useMemo(() => new Set(friendUids), [friendUids]);
 
-  // Estado UI
+  // Estado
   const [query, setQuery] = React.useState('');
   const [tab, setTab] = React.useState<'all' | 'unread' | 'fav'>('all');
   const [favorites, setFavorites] = React.useState<Record<string, true>>({});
   const [lastRead, setLastRead] = React.useState<Record<string, number>>({});
 
-  // Cache persistente de perfiles
+  // Perfil cache
   const [profilesByUid, setProfilesByUid] = React.useState<Record<string, UIUser | null>>({});
   const cacheRef = React.useRef<ProfileCache>({ data: {}, updatedAt: {} });
 
-  // Cargar persistencia
+  // HEADS: inicia con memoria global para paint instantáneo
+  const initialHeads = (G.__HEADS_MEM ?? {}) as Record<string, Head>;
+  const [headsByConv, setHeadsByConv] = React.useState<Record<string, Head>>(initialHeads);
+  const headsRef = React.useRef<HeadsCache>({ data: initialHeads, updatedAt: 0 });
+
+  // Memoria estable para no volver a "Nuevo chat"
+  const seenExistingRef = React.useRef<Set<string>>(new Set());
+  const lastConvRef = React.useRef<Record<string, UiRow>>({});
+
+  const [_, startTransition] = React.useTransition();
+
+  // Escucha evento de head inmediato (desde ChatRoom)
+  React.useEffect(() => {
+    const sub = DeviceEventEmitter.addListener('CHAT_HEAD', (payload: any) => {
+      const { conversationId, text, at } = payload || {};
+      if (!conversationId) return;
+      setHeadsByConv(prev => {
+        const prevAt = prev[conversationId]?.at ?? 0;
+        if (at != null && at >= prevAt) {
+          const next = { ...prev, [conversationId]: { text: text ?? null, at } };
+          headsRef.current = { data: next, updatedAt: Date.now() };
+          G.__HEADS_MEM = { ...(G.__HEADS_MEM || {}), [conversationId]: { text: text ?? null, at } };
+          AsyncStorage.setItem(K_MSG_HEADS, JSON.stringify(headsRef.current)).catch(() => {});
+          return next;
+        }
+        return prev;
+      });
+    });
+    return () => sub.remove();
+  }, []);
+
+  // Carga inmediata de favoritos/lastRead/heads (mezcla con lo de memoria)
   React.useEffect(() => {
     (async () => {
       try {
-        const [favRaw, lrRaw, profRaw] = await Promise.all([
+        const [favRaw, lrRaw, headsRaw] = await Promise.all([
           AsyncStorage.getItem(K_FAVORITES),
           AsyncStorage.getItem(K_LAST_READ),
-          AsyncStorage.getItem(K_PROFILE_CACHE),
+          AsyncStorage.getItem(K_MSG_HEADS),
         ]);
         if (favRaw) setFavorites(JSON.parse(favRaw));
         if (lrRaw) setLastRead(JSON.parse(lrRaw));
+        if (headsRaw) {
+          const parsed: HeadsCache = JSON.parse(headsRaw) || { data: {}, updatedAt: 0 };
+          headsRef.current = parsed;
+          if (parsed?.data && Object.keys(parsed.data).length) {
+            setHeadsByConv(prev => ({ ...parsed.data, ...prev }));
+            G.__HEADS_MEM = { ...(G.__HEADS_MEM || {}), ...(parsed.data || {}) };
+          }
+        }
+      } catch {}
+    })();
+  }, []);
+
+  // Carga de perfil cache (después de animaciones)
+  useAfterInteractions(() => {
+    (async () => {
+      try {
+        const profRaw = await AsyncStorage.getItem(K_PROFILE_CACHE);
         if (profRaw) {
           const parsed: ProfileCache = JSON.parse(profRaw);
           cacheRef.current = parsed;
-          // pinta de inmediato lo que esté fresco
           const now = Date.now();
           const fresh: Record<string, UIUser | null> = {};
           for (const [k, v] of Object.entries(parsed.data || {})) {
@@ -195,19 +250,17 @@ export default function ChatsScreen() {
     })();
   }, []);
 
-  // Construir filas (sin tocar tus hooks)
-  const rows: UiRow[] = React.useMemo(() => {
-    if (!uid) return [];
-    const list: UiRow[] = [];
+  // Memoria estable de conversaciones
+  React.useEffect(() => {
+    if (!uid) { seenExistingRef.current = new Set(); lastConvRef.current = {}; return; }
 
-    const convByOther = new Map<
-      string,
-      { id: string; lastMessage?: string | null; updatedAt?: number | null; lastMessageAt?: number | null; meta?: any }
-    >();
+    const nextSeen = new Set(seenExistingRef.current);
+    const nextLast = { ...lastConvRef.current };
 
     (items || []).forEach((it: any) => {
-      const other = (it?.members || []).find((m: string) => m !== uid);
-      if (!other) return;
+      const members: string[] = Array.isArray(it?.members) ? it.members : [];
+      const otherId = members.find((m) => m && m !== uid);
+      if (!otherId) return;
 
       const updated =
         typeof it?.updatedAt === 'number' ? it.updatedAt : it?.updatedAt?.toMillis?.() ?? null;
@@ -217,47 +270,89 @@ export default function ChatsScreen() {
           ? it.lastMessageAt
           : it?.lastMessageAt?.toMillis?.() ?? updated;
 
-      convByOther.set(other, {
+      nextSeen.add(otherId);
+      nextLast[otherId] = {
         id: it.id,
+        otherId,
         lastMessage: it.lastMessage ?? null,
+        isNew: false,
         updatedAt: updated,
         lastMessageAt: lastAt,
-        meta: it?.membersMeta?.[other] ?? null, // PERF: perfil ligero inline si existe
+      };
+    });
+
+    seenExistingRef.current = nextSeen;
+    lastConvRef.current = nextLast;
+  }, [items, uid]);
+
+  // ===== Construir filas y ORDENAR usando headsByConv para mover al tope el último chat =====
+  const rows: UiRow[] = React.useMemo(() => {
+    if (!uid) return [];
+
+    const out: UiRow[] = [];
+    const convMap = new Map<string, UiRow>(
+      Object.entries(lastConvRef.current).map(([k, v]) => [k, v as UiRow])
+    );
+
+    (items || []).forEach((it: any) => {
+      const members: string[] = Array.isArray(it?.members) ? it.members : [];
+      const otherId = members.find((m) => m && m !== uid);
+      if (!otherId) return;
+
+      const updated =
+        typeof it?.updatedAt === 'number' ? it.updatedAt : it?.updatedAt?.toMillis?.() ?? null;
+
+      const lastAt =
+        typeof it?.lastMessageAt === 'number'
+          ? it.lastMessageAt
+          : it?.lastMessageAt?.toMillis?.() ?? updated;
+
+      convMap.set(otherId, {
+        id: it.id,
+        otherId,
+        lastMessage: it.lastMessage ?? null,
+        isNew: false,
+        updatedAt: updated,
+        lastMessageAt: lastAt,
       });
     });
 
-    friendUids.forEach((otherId) => {
-      const existing = convByOther.get(otherId);
-      if (existing) {
-        list.push({
-          id: existing.id,
-          otherId,
-          lastMessage: existing.lastMessage ?? null,
-          isNew: false,
-          updatedAt: existing.updatedAt ?? null,
-          lastMessageAt: existing.lastMessageAt ?? null,
-        });
-      } else {
-        list.push({
-          id: `temp:${otherId}`,
-          otherId,
-          lastMessage: null,
-          isNew: true,
-          updatedAt: null,
-          lastMessageAt: null,
-        });
-      }
+    convMap.forEach((row) => out.push(row));
+
+    // amigos sin conversación
+    friendUids.forEach((fid) => {
+      if (!fid) return;
+      if (seenExistingRef.current.has(fid)) return;
+      if (convMap.has(fid)) return;
+      out.push({
+        id: `temp:${fid}`,
+        otherId: fid,
+        lastMessage: null,
+        isNew: true,
+        updatedAt: null,
+        lastMessageAt: null,
+      });
     });
 
-    // existentes primero, luego nuevos; después por uid
-    return list.sort((a, b) => {
+    // 👉 Orden clave: usa el head.at si existe para ordenar al tope el último chat
+    const getSortAt = (r: UiRow) => {
+      const headAt = headsByConv[r.id]?.at ?? null;
+      const baseAt = r.lastMessageAt ?? r.updatedAt ?? 0;
+      return Math.max(baseAt || 0, headAt || 0);
+    };
+
+    return out.sort((a, b) => {
+      // existentes primero
       if (a.isNew && !b.isNew) return 1;
       if (!a.isNew && b.isNew) return -1;
+      const atA = getSortAt(a);
+      const atB = getSortAt(b);
+      if (atA !== atB) return atB - atA; // desc
       return a.otherId.localeCompare(b.otherId);
     });
-  }, [uid, items, friendUids]);
+  }, [uid, items, friendUids, headsByConv]); // 👈 headsByConv mueve en caliente
 
-  // Hidratar perfiles desde membersMeta de las conversaciones (si viene)
+  // Hidratar perfiles desde membersMeta
   React.useEffect(() => {
     if (!items?.length) return;
     const quick: Record<string, UIUser | null> = {};
@@ -275,33 +370,32 @@ export default function ChatsScreen() {
       }
     });
     if (Object.keys(quick).length) {
-      // no pises perfiles ya cargados de red/cache
-      setProfilesByUid(prev => ({ ...quick, ...prev }));
-      // y si no estaban en cache persistente, guárdalos (sin caducar)
-      const now = Date.now();
-      const next: ProfileCache = {
-        data: { ...cacheRef.current.data, ...quick },
-        updatedAt: { ...cacheRef.current.updatedAt },
-      };
-      Object.keys(quick).forEach(uid => { if (!next.updatedAt[uid]) next.updatedAt[uid] = now; });
-      cacheRef.current = next;
-      AsyncStorage.setItem(K_PROFILE_CACHE, JSON.stringify(next)).catch(() => {});
+      startTransition(() => {
+        setProfilesByUid(prev => ({ ...quick, ...prev }));
+        const now = Date.now();
+        const next: ProfileCache = {
+          data: { ...cacheRef.current.data, ...quick },
+          updatedAt: { ...cacheRef.current.updatedAt },
+        };
+        Object.keys(quick).forEach(uid => { if (!next.updatedAt[uid]) next.updatedAt[uid] = now; });
+        cacheRef.current = next;
+        AsyncStorage.setItem(K_PROFILE_CACHE, JSON.stringify(next)).catch(() => {});
+      });
     }
   }, [items, uid]);
 
-  // Fetch de perfiles: usa cache + ChatConfig.getManyUsersByUid (solo lo que falte)
-  React.useEffect(() => {
+  // Fetch perfiles faltantes
+  useAfterInteractions(() => {
     const allUids = Array.from(new Set(rows.map(r => r.otherId)));
     if (!allUids.length) return;
 
-    // 1) Marca lo fresco de cache persistente
     const now = Date.now();
     const freshFromCache: Record<string, UIUser | null> = {};
     const needNetwork: string[] = [];
 
     for (const u of allUids) {
       const inState = profilesByUid[u];
-      if (inState !== undefined) continue; // ya en memoria UI
+      if (inState !== undefined) continue;
 
       const ts = cacheRef.current.updatedAt[u] || 0;
       const fresh = now - ts < PROFILE_TTL_MS;
@@ -314,7 +408,7 @@ export default function ChatsScreen() {
     }
 
     if (Object.keys(freshFromCache).length) {
-      setProfilesByUid(prev => ({ ...freshFromCache, ...prev }));
+      startTransition(() => setProfilesByUid(prev => ({ ...freshFromCache, ...prev })));
     }
     if (!needNetwork.length) return;
 
@@ -324,9 +418,8 @@ export default function ChatsScreen() {
         const dict = await ChatConfig.getManyUsersByUid(needNetwork);
         if (cancelled) return;
 
-        setProfilesByUid(prev => ({ ...prev, ...dict }));
+        startTransition(() => setProfilesByUid(prev => ({ ...prev, ...dict })));
 
-        // Persiste en cache
         const stamp = Date.now();
         const next: ProfileCache = {
           data: { ...cacheRef.current.data, ...dict },
@@ -336,17 +429,16 @@ export default function ChatsScreen() {
         cacheRef.current = next;
         AsyncStorage.setItem(K_PROFILE_CACHE, JSON.stringify(next)).catch(() => {});
       } catch {
-        // Evita loops
         const fallback = Object.fromEntries(needNetwork.map(u => [u, null]));
-        setProfilesByUid(prev => ({ ...prev, ...fallback }));
+        startTransition(() => setProfilesByUid(prev => ({ ...prev, ...fallback })));
       }
     })();
 
-    return () => { /* cleanup */ cancelled = true; };
+    return () => { cancelled = true; };
   }, [rows, profilesByUid]);
 
-  // Prefetch de amigos en background para tener cache “calentito”
-  React.useEffect(() => {
+  // Prefetch amigos
+  useAfterInteractions(() => {
     if (!friendUids?.length) return;
     (async () => {
       try {
@@ -361,27 +453,40 @@ export default function ChatsScreen() {
         unknown.forEach(u => { next.updatedAt[u] = now; });
         cacheRef.current = next;
         AsyncStorage.setItem(K_PROFILE_CACHE, JSON.stringify(next)).catch(() => {});
-        // No fuerzas render si no estás en pantalla; pero aquí sí ayuda:
-        setProfilesByUid(prev => ({ ...prev, ...dict }));
+        startTransition(() => setProfilesByUid(prev => ({ ...prev, ...dict })));
       } catch {}
     })();
   }, [friendUids]);
 
-  // helpers UI
+  // Actualiza cache de heads (llamado por cada fila cuando recibe el snapshot del último msg)
+  const onHeadUpdate = React.useCallback((convId: string, head: Head) => {
+    setHeadsByConv(prev => {
+      const prevHead = prev[convId];
+      if (prevHead && prevHead.text === head.text && prevHead.at === head.at) return prev;
+      const next = { ...prev, [convId]: head };
+      headsRef.current = { data: next, updatedAt: Date.now() };
+      G.__HEADS_MEM = { ...(G.__HEADS_MEM || {}), [convId]: head };
+      AsyncStorage.setItem(K_MSG_HEADS, JSON.stringify(headsRef.current)).catch(() => {});
+      return next;
+    });
+  }, []);
+
+  // Helpers
   const isFav = React.useCallback((id: string) => !!favorites[id], [favorites]);
   const toggleFav = React.useCallback((id: string) => {
-    setFavorites(prev => {
-      const nxt = { ...prev };
-      if (nxt[id]) delete nxt[id]; else nxt[id] = true;
-      AsyncStorage.setItem(K_FAVORITES, JSON.stringify(nxt)).catch(() => {});
-      return nxt;
+    startTransition(() => {
+      setFavorites(prev => {
+        const nxt = { ...prev };
+        if (nxt[id]) delete nxt[id]; else nxt[id] = true;
+        AsyncStorage.setItem(K_FAVORITES, JSON.stringify(nxt)).catch(() => {});
+        return nxt;
+      });
     });
   }, []);
 
   const normalized = (s: string) =>
     (s || '').normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase();
 
-  // Para el tab "No leídos" usamos un filtro aproximado: updatedAt > lastRead
   const approxHasUnread = React.useCallback(
     (r: UiRow) => !!r.updatedAt && (r.updatedAt > (lastRead[r.id] ?? 0)),
     [lastRead]
@@ -393,12 +498,14 @@ export default function ChatsScreen() {
       if (tab === 'fav' && !isFav(r.id)) return false;
       if (tab === 'unread' && !approxHasUnread(r)) return false;
       if (!q) return true;
+
+      const head = headsByConv[r.id];
       const other = profilesByUid[r.otherId];
       const title = other?.username ?? other?.displayName ?? '';
-      const hay = normalized(`${title} ${r.lastMessage ?? ''} ${r.otherId}`);
+      const hay = normalized(`${title} ${head?.text ?? r.lastMessage ?? ''} ${r.otherId}`);
       return hay.includes(q);
     });
-  }, [rows, profilesByUid, query, tab, isFav, approxHasUnread]);
+  }, [rows, profilesByUid, query, tab, isFav, approxHasUnread, headsByConv]);
 
   const navigationOpen = async (row: UiRow) => {
     try {
@@ -414,7 +521,7 @@ export default function ChatsScreen() {
       // marcar leído localmente
       const next = { ...lastRead, [conversationId]: Date.now() };
       await AsyncStorage.setItem(K_LAST_READ, JSON.stringify(next));
-      setLastRead(next);
+      startTransition(() => setLastRead(next));
 
       const params: RootStackParamList['ChatRoom'] = { conversationId, otherId: row.otherId };
       navigation.navigate('ChatRoom', params);
@@ -474,8 +581,16 @@ export default function ChatsScreen() {
         ItemSeparatorComponent={() => <View style={styles.separator} />}
         renderItem={({ item }) => {
           const other = profilesByUid[item.otherId] ?? null;
-          const lastTime = formatWhen(item.lastMessageAt ?? item.updatedAt);
+
+          // baseline instantánea desde heads
+          const cachedHead = headsByConv[item.id];
+          const initialText = cachedHead?.text ?? item.lastMessage ?? null;
+          const initialAt =
+            cachedHead?.at ?? item.lastMessageAt ?? item.updatedAt ?? null;
+
+          const defaultTime = formatWhen(initialAt);
           const lastReadMs = lastRead[item.id] ?? 0;
+
           return (
             <ChatRowMemo
               row={item}
@@ -485,7 +600,10 @@ export default function ChatsScreen() {
               onPress={() => navigationOpen(item)}
               isFavorite={isFav(item.id)}
               onToggleFavorite={() => toggleFav(item.id)}
-              lastTime={lastTime}
+              defaultTime={defaultTime}
+              initialText={initialText}
+              initialAt={initialAt}
+              onHeadUpdate={onHeadUpdate}
             />
           );
         }}
@@ -495,50 +613,89 @@ export default function ChatsScreen() {
           </Text>
         }
         contentContainerStyle={{ paddingBottom: 16 }}
-        initialNumToRender={12}
-        maxToRenderPerBatch={12}
+        initialNumToRender={8}
+        maxToRenderPerBatch={8}
         windowSize={7}
         removeClippedSubviews
         keyboardShouldPersistTaps="handled"
+        getItemLayout={(_, index) => ({ length: 70, offset: 70 * index, index })}
       />
     </View>
   );
 }
 
-/** === ChatRow: usa hooks adentro y está memorizado === */
+/** === ChatRow: live override del último mensaje/hora con snapshot + cache instantánea === */
 function ChatRow({
   row,
   other,
   onPress,
   isFavorite,
   onToggleFavorite,
-  lastTime,
+  defaultTime,
   lastReadMs,
   myUid,
+  initialText,
+  initialAt,
+  onHeadUpdate,
 }: {
   row: UiRow;
   other: UIUser | null;
   onPress: () => void;
   isFavorite: boolean;
   onToggleFavorite: () => void;
-  lastTime: string;
+  defaultTime: string;
   lastReadMs: number;
   myUid: string | null;
+  initialText: string | null;
+  initialAt: number | null;
+  onHeadUpdate: (convId: string, head: { text: string | null; at: number | null }) => void;
 }) {
-  // Hook en componente: OK ✅
   const unreadCount = useUnreadCountLive(row.isNew ? null : row.id, lastReadMs, myUid);
   const hasUnread = unreadCount > 0;
 
-  const title =
-    other?.username ??
-    other?.displayName ??
-    '...';
+  const [liveText, setLiveText] = React.useState<string | null>(initialText ?? (row.isNew ? null : row.lastMessage ?? null));
+  const [liveAt, setLiveAt] = React.useState<number | null>(initialAt ?? (row.isNew ? null : (row.lastMessageAt ?? row.updatedAt ?? null)));
 
-  const subtitle = row.isNew ? 'Nuevo chat' : (row.lastMessage || '');
+  React.useEffect(() => {
+    setLiveText(initialText ?? (row.isNew ? null : row.lastMessage ?? null));
+    setLiveAt(initialAt ?? (row.isNew ? null : (row.lastMessageAt ?? row.updatedAt ?? null)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialText, initialAt, row.id, row.isNew]);
+
+  React.useEffect(() => {
+    if (row.isNew) return;
+
+    const q = firestore()
+      .collection('conversations')
+      .doc(row.id)
+      .collection('messages')
+      .orderBy('createdAt', 'desc')
+      .limit(1);
+
+    const unsub = q.onSnapshot((snap) => {
+      const d = snap.docs[0]?.data() as any;
+      if (!d) return;
+      const t = (d.text ?? '').toString() || null;
+      const at =
+        typeof d.createdAt === 'number'
+          ? d.createdAt
+          : d.createdAt?.toMillis?.() ?? null;
+
+      setLiveText((prev) => (prev === t ? prev : t));
+      setLiveAt((prev) => (prev === at ? prev : at));
+
+      onHeadUpdate(row.id, { text: t, at });
+    });
+
+    return unsub;
+  }, [row.id, row.isNew, onHeadUpdate]);
+
+  const title = other?.username ?? other?.displayName ?? '...';
+  const subtitle = row.isNew ? 'Nuevo chat' : (liveText ?? '');
+  const timeStr = row.isNew ? '' : (formatWhen(liveAt) || defaultTime);
 
   return (
     <TouchableOpacity onPress={onPress} activeOpacity={0.8} style={styles.row}>
-      {/* Avatar */}
       <View style={styles.avatarWrap}>
         {other?.photoURL ? (
           <Image source={{ uri: other.photoURL }} style={styles.avatar} />
@@ -547,16 +704,15 @@ function ChatRow({
         )}
       </View>
 
-      {/* Centro: nombre + última línea */}
       <View style={styles.rowBody}>
         <View style={styles.rowTop}>
           <Text style={[styles.rowTitle, hasUnread && { fontWeight: '800' }]} numberOfLines={1}>
             {title}
           </Text>
 
-          {!!lastTime && (
-            <Text style={[styles.timeText, hasUnread && { color: COLORS.success, fontWeight: '700' }]}>
-              {lastTime}
+          {!!timeStr && (
+            <Text style={[styles.timeText, hasUnread && { color: COLORS.primary, fontWeight: '700' }]}>
+              {timeStr}
             </Text>
           )}
         </View>
@@ -571,7 +727,6 @@ function ChatRow({
         )}
       </View>
 
-      {/* Derecha: estrella + badge */}
       <View style={styles.rightCol}>
         <TouchableOpacity onPress={onToggleFavorite} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
           <Icon
@@ -649,7 +804,7 @@ const styles = StyleSheet.create({
   rightCol: { alignItems: 'flex-end', justifyContent: 'space-between', height: 46, paddingVertical: 2, marginLeft: 8 },
   unreadBadge: {
     marginTop: 6, minWidth: 22, height: 22, paddingHorizontal: 6, borderRadius: 11,
-    backgroundColor: COLORS.success, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: COLORS.primary, alignItems: 'center', justifyContent: 'center',
   },
   unreadBadgeText: { color: '#fff', fontSize: 12, fontWeight: '800' },
   badgeNew: {

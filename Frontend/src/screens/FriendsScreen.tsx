@@ -23,10 +23,10 @@ import { ChatConfig, type UIUser } from '../services/chat/config';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../App';
+import { useAfterInteractions } from '../hooks/useAfterInteractions';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
 
-// Cache persistente de perfiles (idéntico a ChatsScreen)
 const K_PROFILE_CACHE = 'chat:profileCache:v1';
 const PROFILE_TTL_MS = 1000 * 60 * 60 * 24 * 7; // 7 días
 type ProfileCache = {
@@ -39,36 +39,40 @@ export default function FriendsScreen() {
   const myUid = auth().currentUser?.uid ?? null;
   const { incoming, outgoing, friends, loading } = useFriends(myUid);
 
-  // ==== búsqueda/autocompletar ====
+  // búsqueda/autocompletar
   const [query, setQuery] = React.useState('');
   const [results, setResults] = React.useState<Array<{ tag: string; uid: string }>>([]);
   const [searching, setSearching] = React.useState(false);
 
-  // Cache de perfiles
+  // perfiles cacheados (estado + persistente)
   const [profilesByUid, setProfilesByUid] = React.useState<Record<string, UIUser | null>>({});
   const cacheRef = React.useRef<ProfileCache>({ data: {}, updatedAt: {} });
 
-  // ====== Cargar cache persistente al montar ======
-  React.useEffect(() => {
+  // transiciones no bloqueantes
+  const [_, startTransition] = React.useTransition();
+
+  // Carga cache persistente DESPUÉS de las animaciones
+  useAfterInteractions(() => {
     (async () => {
       try {
         const raw = await AsyncStorage.getItem(K_PROFILE_CACHE);
         if (!raw) return;
         const parsed: ProfileCache = JSON.parse(raw);
         cacheRef.current = parsed;
-        // pinta lo fresco
         const now = Date.now();
         const fresh: Record<string, UIUser | null> = {};
         for (const [uid, u] of Object.entries(parsed.data || {})) {
           const ts = parsed.updatedAt?.[uid] ?? 0;
           if (now - ts < PROFILE_TTL_MS) fresh[uid] = u;
         }
-        if (Object.keys(fresh).length) setProfilesByUid(prev => ({ ...fresh, ...prev }));
+        if (Object.keys(fresh).length) {
+          startTransition(() => setProfilesByUid(prev => ({ ...fresh, ...prev })));
+        }
       } catch {}
     })();
   }, []);
 
-  // uids para impedir duplicados (ya soy amigo o ya hay solicitud)
+  // sets auxiliares
   const pendingOutgoingUids = React.useMemo(
     () => new Set(outgoing.map(r => r.to)),
     [outgoing]
@@ -80,13 +84,13 @@ export default function FriendsScreen() {
   const friendUids = React.useMemo(() => {
     const s = new Set<string>();
     friends.forEach(r => {
-      const other = r.members?.find?.(m => m !== myUid);
+      const other = r.members?.find?.((m: string) => m !== myUid);
       if (other) s.add(other);
     });
     return s;
   }, [friends, myUid]);
 
-  // Debounce simple de búsqueda
+  // Debounce de búsqueda
   React.useEffect(() => {
     const q = query.trim().replace(/^@/, '').toLowerCase();
     if (!q) {
@@ -107,7 +111,7 @@ export default function FriendsScreen() {
     return () => clearTimeout(t);
   }, [query]);
 
-  // ===== Prefetch de perfiles necesarios (entrantes/salientes/amigos/resultados) =====
+  // UIDs que necesito tener listos (entrantes/salientes/amigos/resultados)
   const neededUids = React.useMemo(() => {
     const s = new Set<string>();
     incoming.forEach(it => s.add(it.from));
@@ -120,7 +124,8 @@ export default function FriendsScreen() {
     return Array.from(s);
   }, [incoming, outgoing, friends, results, myUid]);
 
-  React.useEffect(() => {
+  // Prefetch de perfiles DESPUÉS de animación (usa cache + red solo si falta)
+  useAfterInteractions(() => {
     if (!neededUids.length) return;
 
     const now = Date.now();
@@ -128,10 +133,7 @@ export default function FriendsScreen() {
     const needNetwork: string[] = [];
 
     for (const uid of neededUids) {
-      // ya en estado
       if (profilesByUid[uid] !== undefined) continue;
-
-      // prueba cache persistente
       const ts = cacheRef.current.updatedAt[uid] || 0;
       const fresh = now - ts < PROFILE_TTL_MS;
       const cached = cacheRef.current.data[uid];
@@ -140,7 +142,7 @@ export default function FriendsScreen() {
     }
 
     if (Object.keys(freshFromCache).length) {
-      setProfilesByUid(prev => ({ ...freshFromCache, ...prev }));
+      startTransition(() => setProfilesByUid(prev => ({ ...freshFromCache, ...prev })));
     }
     if (!needNetwork.length) return;
 
@@ -149,9 +151,8 @@ export default function FriendsScreen() {
       try {
         const dict = await ChatConfig.getManyUsersByUid(needNetwork);
         if (cancelled) return;
-        setProfilesByUid(prev => ({ ...prev, ...dict }));
+        startTransition(() => setProfilesByUid(prev => ({ ...prev, ...dict })));
 
-        // persistir
         const stamp = Date.now();
         const next: ProfileCache = {
           data: { ...cacheRef.current.data, ...dict },
@@ -162,34 +163,14 @@ export default function FriendsScreen() {
         AsyncStorage.setItem(K_PROFILE_CACHE, JSON.stringify(next)).catch(() => {});
       } catch {
         const fallback = Object.fromEntries(needNetwork.map(u => [u, null]));
-        setProfilesByUid(prev => ({ ...prev, ...fallback }));
+        startTransition(() => setProfilesByUid(prev => ({ ...prev, ...fallback })));
       }
     })();
 
-    return () => { /* cleanup */ cancelled = true; };
+    return () => { cancelled = true; };
   }, [neededUids, profilesByUid]);
 
-  // Prefetch “calentito”: cuando hay resultados de búsqueda nuevos
-  React.useEffect(() => {
-    if (!results?.length) return;
-    const uids = results.map(r => r.uid).filter(u => !(u in cacheRef.current.data));
-    if (!uids.length) return;
-    (async () => {
-      try {
-        const dict = await ChatConfig.getManyUsersByUid(uids);
-        const now = Date.now();
-        const next: ProfileCache = {
-          data: { ...cacheRef.current.data, ...dict },
-          updatedAt: { ...cacheRef.current.updatedAt },
-        };
-        uids.forEach(u => { next.updatedAt[u] = now; });
-        cacheRef.current = next;
-        AsyncStorage.setItem(K_PROFILE_CACHE, JSON.stringify(next)).catch(() => {});
-        setProfilesByUid(prev => ({ ...prev, ...dict }));
-      } catch {}
-    })();
-  }, [results]);
-
+  // acciones
   const sendReqTo = async (otherUid: string) => {
     try {
       if (!myUid) return Alert.alert('Sesión', 'Inicia sesión primero.');
@@ -238,7 +219,7 @@ export default function FriendsScreen() {
     }
   };
 
-  // ==== Fila de usuario (SIN lecturas de red; solo pinta) ====
+  // Fila memorizada (no hace IO; solo pinta)
   const FriendRow = React.useMemo(() => {
     return React.memo(function FriendRowInner({
       other,
@@ -406,6 +387,11 @@ export default function FriendsScreen() {
             }
           />
         )}
+        initialNumToRender={8}
+        maxToRenderPerBatch={8}
+        windowSize={7}
+        getItemLayout={(_, index) => ({ length: 72, offset: 72 * index, index })}
+        removeClippedSubviews
       />
 
       {/* ENVIADAS */}
@@ -420,6 +406,11 @@ export default function FriendsScreen() {
             right={<Text style={{ color: '#64748b' }}>Pendiente</Text>}
           />
         )}
+        initialNumToRender={8}
+        maxToRenderPerBatch={8}
+        windowSize={7}
+        getItemLayout={(_, index) => ({ length: 72, offset: 72 * index, index })}
+        removeClippedSubviews
       />
 
       {/* AMIGOS */}
@@ -444,6 +435,11 @@ export default function FriendsScreen() {
             />
           );
         }}
+        initialNumToRender={8}
+        maxToRenderPerBatch={8}
+        windowSize={7}
+        getItemLayout={(_, index) => ({ length: 72, offset: 72 * index, index })}
+        removeClippedSubviews
       />
     </View>
   );

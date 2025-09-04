@@ -1,19 +1,31 @@
 // src/services/chat/index.ts
-import firestore, { FirebaseFirestoreTypes } from '@react-native-firebase/firestore';
+import firestore from '@react-native-firebase/firestore';
 import { ChatConfig } from './config';
 
 const convs = () => firestore().collection(ChatConfig.conversationsCollection);
-const nowTs = () => firestore.FieldValue.serverTimestamp() as unknown as FirebaseFirestoreTypes.Timestamp;
+const now = () => firestore.FieldValue.serverTimestamp();
+
+const preview = (s: string) => {
+  const t = (s || '').trim();
+  return t.length <= 140 ? t : t.slice(0, 140) + '…';
+};
 
 export const createConversation = async (memberIds: string[]) => {
   const uniq = Array.from(new Set(memberIds)).sort();
   if (uniq.length < 2) throw new Error('Se requieren 2 miembros');
 
-  const ref = await convs().add({
+  const pairKey = `${uniq[0]}__${uniq[1]}`;
+  const ref = convs().doc();
+
+  await ref.set({
+    id: ref.id,
     members: uniq,
-    updatedAt: nowTs(),
-    lastMessage: null,     // 🔹 null en lugar de string vacío
-    lastSenderId: null,    // 🔹 null en lugar de string vacío
+    pairKey,
+    updatedAt: now(),
+    lastMessage: null,
+    lastMessageAt: null,
+    lastSenderId: null,
+    // opcional: membersMeta
   });
 
   return ref.id;
@@ -23,37 +35,51 @@ export const fetchOrCreateOneToOne = async (a: string, b: string) => {
   const [x, y] = Array.from(new Set([a, b])).sort();
   if (!x || !y || x === y) throw new Error('UIDs inválidos');
 
-  // Buscar existente
-  const snap = await convs().where('members', 'array-contains', x).get();
-  const found = snap.docs.find(d => {
-    const m = (d.data().members ?? []) as string[];
-    return m.length === 2 && m.includes(y);
-  });
+  const pairKey = `${x}__${y}`;
+  const q = await convs().where('pairKey', '==', pairKey).limit(1).get();
+  if (!q.empty) return q.docs[0].id;
 
-  if (found) return found.id;
-
-  // Crear nueva
   return createConversation([x, y]);
 };
 
+/**
+ * Escribe el mensaje con campos compatibles:
+ *  - authorId y senderId (ambos)
+ *  - createdAt y sentAt (ambos)
+ * Esto evita romper ChatRoom o reglas antiguas.
+ */
 export const sendMessage = async (conversationId: string, senderId: string, text: string) => {
+  const trimmed = (text || '').trim();
+  if (!trimmed) return;
+
+  const convRef = convs().doc(conversationId);
+  const msgRef = convRef.collection(ChatConfig.messagesSubcollection).doc();
+  const ts = now();
+
   const message = {
-    text,
-    senderId,
-    createdAt: nowTs(),
+    id: msgRef.id,
+    text: trimmed,
+    // ✅ compat nombres
+    authorId: senderId,
+    senderId: senderId,
+    // ✅ compat timestamps
+    createdAt: ts,
+    sentAt: ts,
     type: 'text' as const,
   };
 
-  const batch = firestore().batch();
-  const msgRef = convs().doc(conversationId).collection('messages').doc();
-  batch.set(msgRef, message);
+  await firestore().runTransaction(async (tx) => {
+    tx.set(msgRef, message);
 
-  const convRef = convs().doc(conversationId);
-  batch.set(convRef, {
-    lastMessage: text,
-    lastSenderId: senderId,
-    updatedAt: nowTs(),
-  }, { merge: true });
-
-  await batch.commit();
+    tx.set(
+      convRef,
+      {
+        lastMessage: preview(trimmed),
+        lastMessageAt: ts,
+        lastSenderId: senderId,
+        updatedAt: ts,
+      },
+      { merge: true }
+    );
+  });
 };

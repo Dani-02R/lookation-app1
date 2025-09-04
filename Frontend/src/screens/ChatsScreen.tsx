@@ -40,6 +40,7 @@ type UiRow = {
   isNew?: boolean;
   updatedAt?: number | null;      // ms
   lastMessageAt?: number | null;  // ms
+  pairKey?: string | null;        // clave estable del par 1:1
 };
 
 const COLORS = {
@@ -80,6 +81,30 @@ type HeadsCache = { data: Record<string, Head>, updatedAt: number };
 
 // globalThis seguro
 const G = globalThis as any;
+
+/** Helpers de tiempo/actividad/dedupe */
+const toMs = (v: any): number | null =>
+  typeof v === 'number' ? v : v?.toMillis?.() ?? null;
+
+const makePairKey = (a: string, b: string) => [a, b].sort().join('|');
+
+const activityAt = (r: { lastMessageAt?: number | null; updatedAt?: number | null }) =>
+  (r.lastMessageAt ?? r.updatedAt ?? 0);
+
+const hasHead = (r: { lastMessage?: string | null }) =>
+  !!(r.lastMessage && String(r.lastMessage).trim().length > 0);
+
+function pickBetter(prev: UiRow, next: UiRow): UiRow {
+  const aHas = hasHead(prev);
+  const bHas = hasHead(next);
+  if (aHas !== bHas) return bHas ? next : prev;
+
+  const aAt = activityAt(prev);
+  const bAt = activityAt(next);
+  if (aAt !== bAt) return bAt > aAt ? next : prev;
+
+  return prev;
+}
 
 function formatWhen(ms?: number | null) {
   if (!ms) return '';
@@ -127,11 +152,10 @@ function useUnreadCountLive(convId: string | null, lastReadMs: number, myUid: st
       return;
     }
 
-    // Filtramos por createdAt en servidor y contamos en cliente según authorId/senderId
     const q = firestore()
-      .collection('conversations')
+      .collection(ChatConfig.conversationsCollection)
       .doc(convId)
-      .collection('messages')
+      .collection(ChatConfig.messagesSubcollection || 'messages')
       .where('createdAt', '>', new Date(lastReadMs || 0));
 
     const unsub = q.onSnapshot(
@@ -250,35 +274,35 @@ export default function ChatsScreen() {
     })();
   }, []);
 
-  // Memoria estable de conversaciones
+  // Memoria estable de conversaciones (DEDUP por pairKey)
   React.useEffect(() => {
     if (!uid) { seenExistingRef.current = new Set(); lastConvRef.current = {}; return; }
 
     const nextSeen = new Set(seenExistingRef.current);
-    const nextLast = { ...lastConvRef.current };
+    const nextLast: Record<string, UiRow> = { ...lastConvRef.current };
 
     (items || []).forEach((it: any) => {
-      const members: string[] = Array.isArray(it?.members) ? it.members : [];
-      const otherId = members.find((m) => m && m !== uid);
+      const members: string[] = Array.isArray(it?.members) ? it.members.filter(Boolean) : [];
+      let otherId = members.find((m) => m && m !== uid) ?? null;
+      if (!otherId && typeof it?.lastSenderId === 'string' && it.lastSenderId !== uid) otherId = it.lastSenderId;
+      if (!otherId && members.length === 1) otherId = members[0];
       if (!otherId) return;
 
-      const updated =
-        typeof it?.updatedAt === 'number' ? it.updatedAt : it?.updatedAt?.toMillis?.() ?? null;
-
-      const lastAt =
-        typeof it?.lastMessageAt === 'number'
-          ? it.lastMessageAt
-          : it?.lastMessageAt?.toMillis?.() ?? updated;
-
-      nextSeen.add(otherId);
-      nextLast[otherId] = {
+      const updated       = toMs(it?.updatedAt);
+      const lastMessageAt = toMs(it?.lastMessageAt) ?? updated;
+      const row: UiRow = {
         id: it.id,
         otherId,
-        lastMessage: it.lastMessage ?? null,
+        lastMessage: it?.lastMessage ?? null,
         isNew: false,
-        updatedAt: updated,
-        lastMessageAt: lastAt,
+        updatedAt: updated ?? null,
+        lastMessageAt: lastMessageAt ?? null,
+        pairKey: it?.pairKey ?? makePairKey(uid, otherId),
       };
+
+      const key = row.pairKey!;
+      nextLast[key] = nextLast[key] ? pickBetter(nextLast[key], row) : row;
+      nextSeen.add(otherId);
     });
 
     seenExistingRef.current = nextSeen;
@@ -290,40 +314,14 @@ export default function ChatsScreen() {
     if (!uid) return [];
 
     const out: UiRow[] = [];
-    const convMap = new Map<string, UiRow>(
-      Object.entries(lastConvRef.current).map(([k, v]) => [k, v as UiRow])
-    );
+    // 1) Conversaciones existentes (ya deduplicadas por pairKey)
+    Object.values(lastConvRef.current).forEach((row) => out.push(row));
 
-    (items || []).forEach((it: any) => {
-      const members: string[] = Array.isArray(it?.members) ? it.members : [];
-      const otherId = members.find((m) => m && m !== uid);
-      if (!otherId) return;
-
-      const updated =
-        typeof it?.updatedAt === 'number' ? it.updatedAt : it?.updatedAt?.toMillis?.() ?? null;
-
-      const lastAt =
-        typeof it?.lastMessageAt === 'number'
-          ? it.lastMessageAt
-          : it?.lastMessageAt?.toMillis?.() ?? updated;
-
-      convMap.set(otherId, {
-        id: it.id,
-        otherId,
-        lastMessage: it.lastMessage ?? null,
-        isNew: false,
-        updatedAt: updated,
-        lastMessageAt: lastAt,
-      });
-    });
-
-    convMap.forEach((row) => out.push(row));
-
-    // amigos sin conversación
-    friendUids.forEach((fid) => {
+    // 2) Amigos sin conversación → placeholder “Nuevo chat” SOLO si no hay 1:1 real
+    (friendUids || []).forEach((fid) => {
       if (!fid) return;
-      if (seenExistingRef.current.has(fid)) return;
-      if (convMap.has(fid)) return;
+      const key = makePairKey(uid, fid);
+      if (lastConvRef.current[key]) return;
       out.push({
         id: `temp:${fid}`,
         otherId: fid,
@@ -331,10 +329,10 @@ export default function ChatsScreen() {
         isNew: true,
         updatedAt: null,
         lastMessageAt: null,
+        pairKey: key,
       });
     });
 
-    // 👉 Orden clave: usa el head.at si existe para ordenar al tope el último chat
     const getSortAt = (r: UiRow) => {
       const headAt = headsByConv[r.id]?.at ?? null;
       const baseAt = r.lastMessageAt ?? r.updatedAt ?? 0;
@@ -342,7 +340,6 @@ export default function ChatsScreen() {
     };
 
     return out.sort((a, b) => {
-      // existentes primero
       if (a.isNew && !b.isNew) return 1;
       if (!a.isNew && b.isNew) return -1;
       const atA = getSortAt(a);
@@ -350,7 +347,7 @@ export default function ChatsScreen() {
       if (atA !== atB) return atB - atA; // desc
       return a.otherId.localeCompare(b.otherId);
     });
-  }, [uid, items, friendUids, headsByConv]); // 👈 headsByConv mueve en caliente
+  }, [uid, friendUids, headsByConv]);
 
   // Hidratar perfiles desde membersMeta
   React.useEffect(() => {
@@ -471,7 +468,7 @@ export default function ChatsScreen() {
     });
   }, []);
 
-  // Helpers
+  // Helpers favoritos
   const isFav = React.useCallback((id: string) => !!favorites[id], [favorites]);
   const toggleFav = React.useCallback((id: string) => {
     startTransition(() => {
@@ -487,9 +484,24 @@ export default function ChatsScreen() {
   const normalized = (s: string) =>
     (s || '').normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase();
 
+  const lastActivityOf = React.useCallback(
+    (r: UiRow) => {
+      if (r.isNew) return 0;
+      const headAt = headsByConv[r.id]?.at ?? null;
+      const baseAt = r.lastMessageAt ?? r.updatedAt ?? 0;
+      return Math.max(baseAt || 0, headAt || 0);
+    },
+    [headsByConv]
+  );
+
   const approxHasUnread = React.useCallback(
-    (r: UiRow) => !!r.updatedAt && (r.updatedAt > (lastRead[r.id] ?? 0)),
-    [lastRead]
+    (r: UiRow) => {
+      if (r.isNew) return false;
+      const lastAct = lastActivityOf(r);
+      const seen = lastRead[r.id] ?? 0;
+      return lastAct > seen;
+    },
+    [lastRead, lastActivityOf]
   );
 
   const filtered = React.useMemo(() => {
@@ -518,7 +530,6 @@ export default function ChatsScreen() {
       if (row.isNew) {
         conversationId = await fetchOrCreateOneToOne(uid, row.otherId);
       }
-      // marcar leído localmente
       const next = { ...lastRead, [conversationId]: Date.now() };
       await AsyncStorage.setItem(K_LAST_READ, JSON.stringify(next));
       startTransition(() => setLastRead(next));
@@ -582,7 +593,6 @@ export default function ChatsScreen() {
         renderItem={({ item }) => {
           const other = profilesByUid[item.otherId] ?? null;
 
-          // baseline instantánea desde heads
           const cachedHead = headsByConv[item.id];
           const initialText = cachedHead?.text ?? item.lastMessage ?? null;
           const initialAt =
@@ -624,7 +634,7 @@ export default function ChatsScreen() {
   );
 }
 
-/** === ChatRow: live override del último mensaje/hora con snapshot + cache instantánea === */
+/** === ChatRow: detecta conv real por pairKey, y pinta último msg/hora/unread incluso si la fila venía como “Nuevo chat” === */
 function ChatRow({
   row,
   other,
@@ -650,25 +660,64 @@ function ChatRow({
   initialAt: number | null;
   onHeadUpdate: (convId: string, head: { text: string | null; at: number | null }) => void;
 }) {
-  const unreadCount = useUnreadCountLive(row.isNew ? null : row.id, lastReadMs, myUid);
-  const hasUnread = unreadCount > 0;
+  // convId real (si la fila venía como isNew intentamos resolverlo por pairKey)
+  const [convId, setConvId] = React.useState<string | null>(row.isNew ? null : row.id);
 
+  // live head
   const [liveText, setLiveText] = React.useState<string | null>(initialText ?? (row.isNew ? null : row.lastMessage ?? null));
   const [liveAt, setLiveAt] = React.useState<number | null>(initialAt ?? (row.isNew ? null : (row.lastMessageAt ?? row.updatedAt ?? null)));
 
+  // Si es placeholder, intenta resolver conv real por pairKey (doc directo o legacy con where)
+  React.useEffect(() => {
+    if (!row.isNew || !row.pairKey) return;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const docRef = firestore().collection(ChatConfig.conversationsCollection).doc(row.pairKey);
+        const direct = await docRef.get();
+        if (!cancelled && (direct?.exists || !!(direct as any)?.exists)) {
+          setConvId(row.pairKey);
+          return;
+        }
+
+        const qs = await firestore()
+          .collection(ChatConfig.conversationsCollection)
+          .where('pairKey', '==', row.pairKey)
+          .limit(1)
+          .get();
+
+        const hit = qs.docs[0];
+        if (!cancelled && hit) {
+          setConvId(hit.id);
+        }
+      } catch {
+        // silencioso
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [row.isNew, row.pairKey]);
+
+  // Unread count usa convId real si lo hay
+  const unreadCount = useUnreadCountLive(convId, lastReadMs, myUid);
+  const hasUnread = unreadCount > 0;
+
+  // Cuando cambian props iniciales, actualiza baseline
   React.useEffect(() => {
     setLiveText(initialText ?? (row.isNew ? null : row.lastMessage ?? null));
     setLiveAt(initialAt ?? (row.isNew ? null : (row.lastMessageAt ?? row.updatedAt ?? null)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialText, initialAt, row.id, row.isNew]);
 
+  // Suscríbete al último mensaje usando convId real (si lo resolvimos)
   React.useEffect(() => {
-    if (row.isNew) return;
+    if (!convId) return;
 
     const q = firestore()
-      .collection('conversations')
-      .doc(row.id)
-      .collection('messages')
+      .collection(ChatConfig.conversationsCollection)
+      .doc(convId)
+      .collection(ChatConfig.messagesSubcollection || 'messages')
       .orderBy('createdAt', 'desc')
       .limit(1);
 
@@ -684,15 +733,19 @@ function ChatRow({
       setLiveText((prev) => (prev === t ? prev : t));
       setLiveAt((prev) => (prev === at ? prev : at));
 
+      // guarda head tanto bajo convId real (para reusos) como bajo el id actual de la fila
+      onHeadUpdate(convId, { text: t, at });
       onHeadUpdate(row.id, { text: t, at });
     });
 
     return unsub;
-  }, [row.id, row.isNew, onHeadUpdate]);
+  }, [convId, row.id, onHeadUpdate]);
 
   const title = other?.username ?? other?.displayName ?? '...';
-  const subtitle = row.isNew ? 'Nuevo chat' : (liveText ?? '');
-  const timeStr = row.isNew ? '' : (formatWhen(liveAt) || defaultTime);
+
+  // Si ya tenemos convId real o un head, mostramos texto/hora. Si no, “Nuevo chat”.
+  const subtitle = (convId || liveText) ? (liveText ?? '') : 'Nuevo chat';
+  const timeStr = (convId || liveAt) ? (formatWhen(liveAt) || defaultTime) : '';
 
   return (
     <TouchableOpacity onPress={onPress} activeOpacity={0.8} style={styles.row}>
